@@ -4,38 +4,44 @@ require "./spec_helper"
 describe Docv::Viewer::Bindings do
   bindings = Docv::Viewer::Bindings.new
 
-  it "matches plain keys" do
-    bindings.lookup(Docv::Term::KeyEvent.new('j'.ord)).should eq Docv::Viewer::Action::LineDown
+  it "binds no text keys, so typing finds in the page" do
+    (' '.ord..'~'.ord).each do |code|
+      bindings.lookup(Docv::Term::KeyEvent.new(code)).should be_nil
+      bindings.lookup(Docv::Term::KeyEvent.new(code, Docv::Term::Mods::Shift)).should be_nil
+    end
   end
 
-  it "leaves the arrow keys sideways unbound" do
-    bindings.lookup(Docv::Term::KeyEvent.new(Docv::Term::Key::LEFT)).should be_nil
-    bindings.lookup(Docv::Term::KeyEvent.new(Docv::Term::Key::RIGHT, Docv::Term::Mods::Shift)).should be_nil
-    bindings.lookup(Docv::Term::KeyEvent.new('l'.ord)).should eq Docv::Viewer::Action::Right
+  it "scrolls with the arrows, sideways too" do
+    bindings.lookup(Docv::Term::KeyEvent.new(Docv::Term::Key::DOWN)).should eq Docv::Viewer::Action::LineDown
+    bindings.lookup(Docv::Term::KeyEvent.new(Docv::Term::Key::LEFT)).should eq Docv::Viewer::Action::Left
+    bindings.lookup(Docv::Term::KeyEvent.new(Docv::Term::Key::RIGHT, Docv::Term::Mods::Shift)).should eq Docv::Viewer::Action::HalfRight
+    bindings.lookup(Docv::Term::KeyEvent.new(Docv::Term::Key::RIGHT, Docv::Term::Mods::Ctrl)).should eq Docv::Viewer::Action::LineEnd
+    bindings.lookup(Docv::Term::KeyEvent.new(Docv::Term::Key::LEFT, Docv::Term::Mods::Alt)).should eq Docv::Viewer::Action::Back
   end
 
   it "matches the physical key through the base layout" do
-    event = Docv::Term::KeyEvent.new(0x43E, base: 'j'.ord)
-    bindings.lookup(event).should eq Docv::Viewer::Action::LineDown
+    event = Docv::Term::KeyEvent.new(0x438, Docv::Term::Mods::Ctrl, base: 'b'.ord)
+    bindings.lookup(event).should eq Docv::Viewer::Action::ToggleDock
   end
 
   it "matches shifted symbols without their shift" do
+    keymap = Docv::Viewer::Bindings.new([{Docv::Term::Mods::None, '$'.ord, Docv::Viewer::Action::LineEnd}])
     event = Docv::Term::KeyEvent.new('4'.ord, Docv::Term::Mods::Shift, shifted: '$'.ord)
-    bindings.lookup(event).should eq Docv::Viewer::Action::LineEnd
-    event = Docv::Term::KeyEvent.new('g'.ord, Docv::Term::Mods::Shift, shifted: 'G'.ord)
-    bindings.lookup(event).should eq Docv::Viewer::Action::Bottom
+    keymap.lookup(event).should eq Docv::Viewer::Action::LineEnd
   end
 
   it "ignores lock modifiers" do
-    event = Docv::Term::KeyEvent.new('q'.ord, Docv::Term::Mods::NumLock)
+    event = Docv::Term::KeyEvent.new('q'.ord, Docv::Term::Mods::Ctrl | Docv::Term::Mods::NumLock)
     bindings.lookup(event).should eq Docv::Viewer::Action::Quit
   end
 
-  it "focuses the search bar on f and t, with / typed on / and o" do
-    bindings.lookup(Docv::Term::KeyEvent.new('f'.ord)).should eq Docv::Viewer::Action::Find
-    bindings.lookup(Docv::Term::KeyEvent.new('t'.ord)).should eq Docv::Viewer::Action::Find
-    bindings.lookup(Docv::Term::KeyEvent.new('/'.ord)).should eq Docv::Viewer::Action::OpenPage
-    bindings.lookup(Docv::Term::KeyEvent.new('o'.ord)).should eq Docv::Viewer::Action::OpenPage
+  it "finds, searches pages and steps through matches on command keys" do
+    bindings.lookup(Docv::Term::KeyEvent.new('f'.ord, Docv::Term::Mods::Ctrl)).should eq Docv::Viewer::Action::Find
+    bindings.lookup(Docv::Term::KeyEvent.new('o'.ord, Docv::Term::Mods::Ctrl)).should eq Docv::Viewer::Action::OpenPage
+    bindings.lookup(Docv::Term::KeyEvent.new(Docv::Term::Key::F1 + 2)).should eq Docv::Viewer::Action::FindNext
+    bindings.lookup(Docv::Term::KeyEvent.new(Docv::Term::Key::F1 + 2, Docv::Term::Mods::Shift)).should eq Docv::Viewer::Action::FindPrevious
+    bindings.lookup(Docv::Term::KeyEvent.new(Docv::Term::Key::F1)).should eq Docv::Viewer::Action::Help
+    bindings.lookup(Docv::Term::KeyEvent.new('z'.ord, Docv::Term::Mods::Alt)).should eq Docv::Viewer::Action::ToggleWrap
   end
 end
 
@@ -47,6 +53,7 @@ describe Docv::Viewer::FieldBindings do
     bindings.lookup(Docv::Term::KeyEvent.new('n'.ord, Docv::Term::Mods::Ctrl)).should eq Docv::Viewer::FieldAction::Next
     bindings.lookup(Docv::Term::KeyEvent.new(Docv::Term::Key::UP)).should eq Docv::Viewer::FieldAction::Previous
     bindings.lookup(Docv::Term::KeyEvent.new('j'.ord)).should be_nil
+    bindings.lookup(Docv::Term::KeyEvent.new(Docv::Term::Key::F1 + 2)).should eq Docv::Viewer::FieldAction::Next
   end
 end
 
@@ -78,7 +85,7 @@ describe Docv::Viewer::Frame do
     wide.region(0, 58).should eq Docv::Viewer::Frame::Region::Close
   end
 
-  it "starts the content after a regular dock" do
+  it "starts the content after the dock" do
     docked = Docv::Viewer::Frame.new(10, 60, 20)
     {docked.inner, docked.left}.should eq({20, 21})
     docked.inner_cols.should eq 39
@@ -141,9 +148,9 @@ describe Docv::Viewer::Help do
   help = Docv::Viewer::Help.new(Docv::Viewer::Bindings.new, Docv::Viewer::FieldBindings.new)
 
   it "lists every bound action with its keys, the search bar and panel keys and the mouse" do
-    help.lines.find! { |line| line.text == "line down" }.keys.should eq "j ↓ Ctrl-n Ctrl-e"
-    help.lines.find! { |line| line.text == "this help" }.keys.should eq "h"
-    help.lines.find! { |line| line.text == "previous match or page" }.keys.should eq "↑ Ctrl-p Shift-Tab"
+    help.lines.find! { |line| line.text == "line down" }.keys.should eq "↓ Ctrl-n Ctrl-e"
+    help.lines.find! { |line| line.text == "this help" }.keys.should eq "F1"
+    help.lines.find! { |line| line.text == "previous match or page" }.keys.should eq "↑ Ctrl-p Shift-Tab Shift-F3"
     help.lines.find! { |line| line.text == "back to the page" }.keys.should eq "Esc"
     help.lines.select(&.heading).map(&.keys).should eq ["Keys", "Search field", "Tree", "Mouse"]
     Docv::Viewer::ACTION_HELP.keys.should eq Docv::Viewer::Action.values
@@ -182,16 +189,16 @@ describe Docv::Viewer::Help do
     scroller.scroll_x(2, narrow)
     scroller.draw(screen, narrow, styles)
     screen[Docv::Viewer::Frame::TOP, 1].ch.should eq 'y'
-    screen[Docv::Viewer::Frame::TOP + 1, 1].ch.should eq '↓'
+    screen[Docv::Viewer::Frame::TOP + 1, 1].ch.should eq 'C'
   end
 
-  it "draws in the page area, after a regular dock" do
+  it "draws in the page area, after the dock" do
     docked = Docv::Viewer::Frame.new(30, 100, 20)
     screen = Docv::Screen.new(30, 100)
     styles = Docv::Theme.new.styles(Docv::Palette.new(true), Docv::ColorDepth::TrueColor)
     help.draw(screen, docked, styles)
     screen[Docv::Viewer::Frame::TOP, 21].ch.should eq 'K'
-    screen[Docv::Viewer::Frame::TOP + 1, 21].ch.should eq 'j'
+    screen[Docv::Viewer::Frame::TOP + 1, 21].ch.should eq '↓'
     screen[Docv::Viewer::Frame::TOP, 20].ch.should eq ' '
   end
 end
@@ -286,14 +293,13 @@ end
 describe Docv::Viewer::Dock do
   frame = Docv::Viewer::Frame.new(24, 100)
 
-  it "fits its width to the screen and moves the page only when regular and open" do
+  it "fits its width to the screen and moves the page only when open" do
     dock = Docv::Viewer::Dock.new(30)
     dock.offset(100).should eq 0
     dock.open = true
     dock.offset(100).should eq 30
     dock.span(40).should eq 20
     dock.span(30).should eq Docv::Viewer::Dock::MIN_WIDTH
-    Docv::Viewer::Dock.new(30, Docv::DockStyle::Overlay, true).offset(100).should eq 0
     dock.width = 3
     dock.width.should eq Docv::Viewer::Dock::MIN_WIDTH
   end
@@ -376,12 +382,11 @@ describe Docv::Viewer::Picker::Outline do
 
   it "folds names sharing a prefix of at least MIN_GROUP items" do
     picker = Docv::Viewer::Picker.new(pages, nested: true)
-    labels.call(picker).should eq ["abrt/", "git/", "ls(1)", "lsblk(1)", "sd_bus_open(1)", "systemd.service(1)",
-                                   "systemd.unit(1)"]
+    labels.call(picker).should eq ["abrt/", "git/", "ls(1)", "lsblk(1)", "sd_bus_open(1)", "systemd/"]
   end
 
   it "unfolds and folds a group, and steps into and out of it" do
-    picker = Docv::Viewer::Picker.new(pages, nested: true)
+    picker = Docv::Viewer::Picker.new(pages, nested: true, min_group: 3)
     picker.group?.should be_true
     picker.expand(20)
     labels.call(picker).first(4).should eq ["abrt/", "  abrt(1)", "  abrt-cli(1)", "  abrt-dump/"]
@@ -427,7 +432,7 @@ describe Docv::Viewer::Picker::Outline do
     grouped = %w(a-x a-y a-z a-w).map_with_index do |name, index|
       Docv::Viewer::Picker::Item.new(name, "", index, group: index % 2, key: name)
     end
-    picker = Docv::Viewer::Picker.new(grouped, nested: true)
+    picker = Docv::Viewer::Picker.new(grouped, nested: true, min_group: 3)
     labels.call(picker).should eq ["a-x", "a-z", "a-w", "a-y"]
   end
 
@@ -458,13 +463,13 @@ describe Docv::Viewer::Picker::Outline do
   end
 
   it "unfolds groups level by level while they fit" do
-    picker = Docv::Viewer::Picker.new(pages, nested: true)
+    picker = Docv::Viewer::Picker.new(pages, nested: true, min_group: 3)
     picker.unfold(9)
     picker.rows.size.should eq 7
     picker.unfold(10)
     labels.call(picker).first(4).should eq ["abrt/", "  abrt(1)", "  abrt-cli(1)", "  abrt-dump/"]
     picker.rows.size.should eq 10
-    roomy = Docv::Viewer::Picker.new(pages, nested: true)
+    roomy = Docv::Viewer::Picker.new(pages, nested: true, min_group: 3)
     roomy.unfold(100)
     roomy.rows.size.should eq 16
     picker.query = "oops"

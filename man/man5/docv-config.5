@@ -84,9 +84,10 @@ every page you open.
 .RE
 .TP
 .B indent
-The body indent of manual pages in the viewer, in columns (0 to 40).
-Unset (the default), man(7) pages are indented 7 columns and mdoc(7) pages
-5, as groff indents them.
+The body indent of manual pages in the viewer, in columns (0 to 40);
+groff indents man(7) pages 7 columns and mdoc(7) pages 5.
+Default
+.BR 2 .
 .SH "THE [viewer] SECTION"
 .TP
 .B start\-wrapped
@@ -118,24 +119,16 @@ in
 .MR docv 1
 for where grammars and queries are looked for.
 .SH "THE [picker] SECTION"
-The dock left of the page: its search field and tree of pages.
-.TP
-.B dock
-Where the dock (search field and tree of pages, opened with
-.BR p )
-sits:
-.B regular
-narrows the page to make room for it,
-.B overlay
-covers the left of the page.
-Default
-.BR regular .
+The dock left of the page (opened with
+.BR p ):
+its search field and tree of pages.
+The page narrows to make room for it.
 .TP
 .B dock\-width
 Width of the dock in columns, 16 to 400.
 Dragging its right edge changes it until the viewer quits.
 Default
-.BR 36 .
+.BR 20 .
 .TP
 .B dock\-open
 Open the dock at start.
@@ -148,7 +141,7 @@ The fewest pages whose names share a prefix
 .BR abrt\-dump ", ...)"
 that make a group in the tree, 2 to 1000.
 Default
-.BR 3 .
+.BR 2 .
 .TP
 .B search\-threads
 How many processes read the text of all pages, and how many threads search
@@ -434,10 +427,6 @@ Characters matched by a search.
 .RB ( "bold green" )
 Pages in the dock's tree whose text has lines the search in the page
 matches, and their counts.
-.TP
-.B popup
-.RB ( "on background+6" )
-The overlay dock.
 .SH EXAMPLES
 .EX
 [man]
@@ -449,7 +438,6 @@ start\-wrapped = false
 syntax\-highlighting = false
 
 [picker]
-dock = overlay
 dock\-width = 40
 min\-group = 2
 

@@ -91,7 +91,7 @@ module Docv
     DOCUMENT_FOLDER = "Markdown"
 
     # :nodoc:
-    START_HINT = "p: this folder's pages │ /: search every page │ h: help"
+    START_HINT = "Ctrl-b: this folder's pages │ /: search every page │ F1: help"
 
     # :nodoc:
     # What lies under the pointer, for its shape.
@@ -215,7 +215,7 @@ module Docv
       @page = Page.new(document, path)
       @screen = Screen.new(@frame.rows, @frame.cols)
       @palette = Palette.new(@dark)
-      @dock = Dock.new(settings.dock_width, settings.dock, false)
+      @dock = Dock.new(settings.dock_width, false)
       @search_threads = settings.search_threads
       @min_group = settings.min_group
       @message = START_HINT if blank_page?
@@ -376,8 +376,8 @@ module Docv
         return help_key(event.key) if @help
         case @focus
         in .field? then field_text(event.text)
-        in .tree?  then tree_key(event.key) || key(event.key)
-        in .page?  then key(event.key)
+        in .tree?  then tree_key(event.key) || type(event)
+        in .page?  then type(event)
         end
       when Term::KeyCommand
         return help_key(event.key) if @help
@@ -410,6 +410,11 @@ module Docv
       end
     end
 
+    # Text bound to no action starts the field over with it.
+    private def type(event : Term::TextInput) : Nil
+      @bindings.lookup(event.key) ? key(event.key) : focus_field(event.text)
+    end
+
     private def key(event : Term::KeyEvent) : Nil
       @selection = nil
       action = @bindings.lookup(event) || return
@@ -421,29 +426,31 @@ module Docv
     def perform(action : Action) : Nil
       half = Math.max(page_rows // 2, 1)
       case action
-      in .line_down?   then @top += 1
-      in .line_up?     then @top -= 1
-      in .page_down?   then @top += Math.max(page_rows - 1, 1)
-      in .page_up?     then @top -= Math.max(page_rows - 1, 1)
-      in .half_down?   then @top += half
-      in .half_up?     then @top -= half
-      in .top?         then @top = 0
-      in .bottom?      then @top = max_top
-      in .left?        then @left -= HORIZONTAL_STEP
-      in .right?       then @left += HORIZONTAL_STEP
-      in .half_left?   then @left -= Math.max(content_cols // 2, 1)
-      in .half_right?  then @left += Math.max(content_cols // 2, 1)
-      in .line_start?  then @left = 0
-      in .line_end?    then @left = max_left
-      in .toggle_wrap? then toggle_wrap
-      in .next_link?   then focus_link(true)
-      in .prev_link?   then focus_link(false)
-      in .follow_link? then follow_focus
-      in .back?        then back
-      in .open_page?   then focus_field(Dock::MANUAL_PREFIX.to_s)
-      in .find?        then focus_field("")
-      in .toggle_dock? then toggle_dock
-      in .help?        then @help = Help.new(@bindings, @field_bindings, @tree_bindings)
+      in .line_down?     then @top += 1
+      in .line_up?       then @top -= 1
+      in .page_down?     then @top += Math.max(page_rows - 1, 1)
+      in .page_up?       then @top -= Math.max(page_rows - 1, 1)
+      in .half_down?     then @top += half
+      in .half_up?       then @top -= half
+      in .top?           then @top = 0
+      in .bottom?        then @top = max_top
+      in .left?          then @left -= HORIZONTAL_STEP
+      in .right?         then @left += HORIZONTAL_STEP
+      in .half_left?     then @left -= Math.max(content_cols // 2, 1)
+      in .half_right?    then @left += Math.max(content_cols // 2, 1)
+      in .line_start?    then @left = 0
+      in .line_end?      then @left = max_left
+      in .toggle_wrap?   then toggle_wrap
+      in .next_link?     then focus_link(true)
+      in .prev_link?     then focus_link(false)
+      in .follow_link?   then follow_focus
+      in .back?          then back
+      in .open_page?     then focus_field(@dock.manual? ? nil : Dock::MANUAL_PREFIX.to_s)
+      in .find?          then focus_field(@dock.manual? ? "" : nil)
+      in .find_next?     then step(1) if @dock.open?
+      in .find_previous? then step(-1) if @dock.open?
+      in .toggle_dock?   then toggle_dock
+      in .help?          then @help = Help.new(@bindings, @field_bindings, @tree_bindings)
       in .escape?
         @link = nil
         @message = nil
@@ -562,13 +569,15 @@ module Docv
       tree.reveal(number, @dock.tree_rows(@frame))
     end
 
-    private def focus_field(text : String) : Nil
+    # Gives the field the keyboard; *text* replaces its contents.
+    private def focus_field(text : String?) : Nil
       open_dock
       @focus = Focus::Field
-      @dock.field.clear
-      @dock.field.insert(text)
       @message = nil
       @selection = nil
+      return unless text
+      @dock.field.clear
+      @dock.field.insert(text)
       field_changed
     end
 

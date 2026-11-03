@@ -62,7 +62,6 @@ module Docv
       Hover
       Mark
       Hit
-      Popup
     end
 
     # :nodoc:
@@ -175,7 +174,6 @@ module Docv
       Role::Hover             => "on background+10",
       Role::Mark              => "bold underline yellow",
       Role::Hit               => "bold green",
-      Role::Popup             => "on background+6",
     }
 
     # The specs used without colors (`NO_COLOR`).
@@ -232,7 +230,6 @@ module Docv
       Role::Hover             => "bold",
       Role::Mark              => "bold underline",
       Role::Hit               => "bold",
-      Role::Popup             => "",
     }
 
     # Roles by config key (`heading1`, `bold-italic`...).

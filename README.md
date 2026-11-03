@@ -34,11 +34,11 @@ dependencies:
 
     docv [-u] [section] name      # a page along the man path: docv ls, docv 3 printf, docv 'ls(1)'
     docv [-u] file                # a page file or a Markdown document
-    docv                          # the viewer on an empty page; p opens this folder's pages
+    docv                          # the viewer on an empty page; Ctrl-b opens this folder's pages
     docv path-add dir...          # add man page directories (path-rm, path-list)
     docv gen-cr [-o dir] [shard]  # man pages for a Crystal shard
 
-In the viewer, `h` lists the keys, `p` opens the dock, `f` finds in the page and `/` searches every page. When standard output is not a terminal, the page is printed as text.
+In the viewer, `F1` lists the keys, `Ctrl-b` opens the dock, typing finds in the page and typing `/` searches every page. When standard output is not a terminal, the page is printed as text.
 
 The manual pages document the rest: docv(1) for the command, keys, mouse and search path, docv-config(5) for `config.ini`. Inside this repository `docv docv` opens docv(1).
 

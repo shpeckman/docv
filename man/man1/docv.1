@@ -102,8 +102,9 @@ section name, is read as a file: a page, or a Markdown document.
 Without a page,
 .B docv
 opens on an empty page with the dock closed;
-.B p
+.B Ctrl\-b
 opens it on the pages and documents of the current folder's project, and
+typing
 .B /
 searches every page.
 .PP
@@ -302,48 +303,51 @@ reading the text of all pages.
 While the help is shown, it shows the lines and first column of the help in
 view instead.
 .SH KEYS
+Text typed while the page or the tree has the keyboard opens the dock with
+the keyboard in its search field, starting the field over with that text:
+letters find in the page, a leading
+.B /
+searches every page (see
+.BR DOCK ).
+Every other action is on a command key.
 Keys are looked up by physical key first (the base layout key of the kitty
 keyboard protocol), then by the key reported, then by the shifted symbol
-without its shift, so
-.B G
-and
-.B $
-work on any keyboard layout.
+without its shift, so the
+.B Ctrl
+combinations work on any keyboard layout.
+.B Esc
+takes the keyboard one level out: from the search field to the tree, from
+the tree to the page.
 .SS The page
 .TP
-.BR j ", " \(da ", " Ctrl\-n ", " Ctrl\-e
+.BR \(da ", " Ctrl\-n ", " Ctrl\-e
 Line down.
 .TP
-.BR k ", " \(ua ", " Ctrl\-p ", " Ctrl\-y
+.BR \(ua ", " Ctrl\-p ", " Ctrl\-y
 Line up.
 .TP
-.BR Space ", " Ctrl\-f ", " PgDn
+.B PgDn
 Page down.
 .TP
-.BR b ", " Ctrl\-b ", " Shift\-Space ", " PgUp
+.B PgUp
 Page up.
 .TP
-.BR d ", " Ctrl\-d " / " u ", " Ctrl\-u
+.BR Ctrl\-d " / " Ctrl\-u
 Half a page down / up.
 .TP
-.BR g ", " < ", " Home " / " G ", " > ", " End
+.BR Home " / " End
 Top / bottom.
 .TP
-.B l
-Scroll right by 8 columns.
-The arrow keys
-.B \(<-
-and
-.B \(->
-do not scroll.
+.BR \(<- " / " \(->
+Scroll left / right by 8 columns.
 .TP
-.BR H " / " L
+.BR Shift\-\(<- " / " Shift\-\(->
 Scroll left / right by half a screen.
 .TP
-.BR 0 " / " $
+.BR Ctrl\-\(<- " / " Ctrl\-\(->
 Line start / line end.
 .TP
-.B w
+.B Alt\-z
 Switch between the wrapped and the unwrapped layout.
 .TP
 .BR Tab " / " Shift\-Tab
@@ -356,25 +360,36 @@ Follow the focused link (see
 .BR Backspace ", " Alt\-\(<-
 Back to the previous page.
 .TP
-.BR f ", " t
-Open the dock with the keyboard in its search field, to find in the page.
+.B Ctrl\-f
+Open the dock with the keyboard in its search field, to find in the page;
+the field keeps the text it has unless it holds a
+.B /
+search.
 .TP
-.BR / ", " o
+.B Ctrl\-o
 The same with
 .B /
-typed, to search the pages of the manual and the documents of the project.
+in the field, to search the pages of the manual and the documents of the
+project; the field keeps a
+.B /
+search it already holds.
 .TP
-.B p
+.BR F3 " / " Shift\-F3
+Next / previous match while finding in the page, or row of the tree during a
+.B /
+search.
+.TP
+.B Ctrl\-b
 Open the dock with the keyboard in its tree, or close it (see
 .BR DOCK ).
 .TP
-.B h
+.B F1
 Show the help in place of the page, with
 .B HELP
 as the heading of the title row: every key as it is bound, and the mouse
 gestures.
 The scrolling keys and the wheel scroll it, also sideways
-.RB ( l ", " H ", " L ", " 0 ", " $ ", " Shift\- wheel);
+.RB ( \(<- ", " \(-> ", " Shift\-\(<- ", " Shift\-\(-> ", " Ctrl\-\(<- ", " Ctrl\-\(-> ", " Shift\- wheel);
 any other key or a click closes it.
 .TP
 .B Esc
@@ -383,7 +398,7 @@ Clear the link focus, the text selection and the message.
 .B Ctrl\-l
 Redraw the screen.
 .TP
-.BR q ", " Q ", " Ctrl\-c
+.BR Ctrl\-q ", " Ctrl\-c
 Quit.
 .SS The search field
 .TP
@@ -404,7 +419,7 @@ Delete the last character.
 .B Ctrl\-u
 Clear the field.
 .TP
-.BR \(da ", " Ctrl\-n " / " \(ua ", " Ctrl\-p ", " Shift\-Tab
+.BR \(da ", " Ctrl\-n ", " F3 " / " \(ua ", " Ctrl\-p ", " Shift\-Tab ", " Shift\-F3
 Next / previous match, or row of the tree.
 .TP
 .BR PgDn " / " PgUp
@@ -417,25 +432,26 @@ step out to the group around the selected page or folded group.
 .BR Shift\-\(-> " / " Shift\-\(<-
 Scroll the tree right / left.
 .SS The tree
-Keys the tree does not bind go to the page.
+Text goes to the search field, and keys the tree does not bind go to the
+page.
 .TP
-.BR j ", " \(da ", " Ctrl\-n " / " k ", " \(ua ", " Ctrl\-p
+.BR \(da ", " Ctrl\-n " / " \(ua ", " Ctrl\-p
 Next / previous page or group.
 .TP
 .BR PgDn " / " PgUp
 A screenful down / up.
 .TP
-.BR g ", " Home " / " G ", " End
+.BR Home " / " End
 First / last row.
 .TP
 .B Enter
 Open the selected page, or fold or unfold the selected group.
 .TP
-.BR l ", " \(-> " / " \(<-
+.BR \(-> " / " \(<-
 Unfold the selected group, or step into it when it is open / fold it, or
 step out to the group around the selected page or folded group.
 .TP
-.BR L ", " Shift\-\(-> " / " H ", " Shift\-\(<-
+.BR Shift\-\(-> " / " Shift\-\(<-
 Scroll the tree right / left.
 .TP
 .B Tab
@@ -452,11 +468,7 @@ on its first row (showing
 .B find
 while empty), then the tree of pages, with a divider on its right
 edge that can be dragged to resize it.
-A regular dock narrows the page; an overlay dock covers the left of the page
-(see
-.B dock
-in
-.MR docv\-config 5 ).
+The page narrows to make room for the dock.
 .PP
 The tree shows the pages around the current one: for a page of the project,
 or without a page, the project's pages
@@ -490,7 +502,7 @@ and the project's
 .B docs/guide.md
 group too), and it takes at least
 .B min\-group
-entries (3 by default, see
+entries (2 by default, see
 .MR docv\-config 5 )
 to make a group.
 Groups cross sections and are case-sensitive; a page named like its group

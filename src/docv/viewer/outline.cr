@@ -14,7 +14,7 @@ module Docv
         # Characters that end a name token.
         SEPARATORS = {'-', '_', '.', ':', '/'}
         # Default fewest items that make a group.
-        MIN_GROUP = 3
+        MIN_GROUP = 2
         # Columns each nesting level indents.
         INDENT = 2
 

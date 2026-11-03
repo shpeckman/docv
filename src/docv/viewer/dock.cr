@@ -26,7 +26,6 @@ module Docv
       end
 
       getter field = Field.new
-      getter style : DockStyle
       # Requested width, divider included; `span` fits it to a screen.
       getter width : Int32
       property? open : Bool
@@ -35,8 +34,7 @@ module Docv
       # Tree of every page, for manual searches.
       property pages : Picker? = nil
 
-      def initialize(@width : Int32 = PickerSettings.new.dock_width, @style : DockStyle = DockStyle::Regular,
-                     @open : Bool = false)
+      def initialize(@width : Int32 = PickerSettings.new.dock_width, @open : Bool = false)
         @width = Math.max(@width, MIN_WIDTH)
       end
 
@@ -49,9 +47,9 @@ module Docv
         Math.min(@width, Math.max(cols - MIN_PAGE, MIN_WIDTH)).clamp(1, Math.max(cols - 2, 1))
       end
 
-      # Columns the page moves right: the span of an open regular dock.
+      # Columns the page moves right: the span of an open dock.
       def offset(cols : Int32) : Int32
-        @open && @style.regular? ? span(cols) : 0
+        @open ? span(cols) : 0
       end
 
       def tree : Picker?
@@ -90,18 +88,16 @@ module Docv
                dragging : Bool) : Nil
         return unless @open
         width = span(frame.cols)
-        fill = @style.overlay? ? styles[Theme::Role::Popup.value] : 0_u16
-        line = Styles.merge(fill, styles[Theme::Role::Border.value])
-        frame.content_rows.times { |offset| screen.fill(Frame::TOP + offset, 0, width - 1, Cell.blank(fill)) }
-        divider = dragging ? Styles.merge(fill, styles[Theme::Role::Thumb.value]) : line
-        frame.content_rows.times { |offset| screen[Frame::TOP + offset, width - 1] = Cell.new('│', divider) }
         border = styles[Theme::Role::Border.value]
+        frame.content_rows.times { |offset| screen.fill(Frame::TOP + offset, 0, width - 1, Cell.blank(0_u16)) }
+        divider = dragging ? styles[Theme::Role::Thumb.value] : border
+        frame.content_rows.times { |offset| screen[Frame::TOP + offset, width - 1] = Cell.new('│', divider) }
         screen[Frame::TOP - 1, width - 1] = Cell.new('┬', border)
         screen.fill(frame.bottom, 0, width - 1, Cell.new('─', border))
         screen[frame.bottom, width - 1] = Cell.new('┴', border)
         draw_field(screen, width - 1, styles, focused)
         tree = self.tree || return
-        tree.draw(screen, Frame::TOP + HEAD_ROWS, 0, tree_rows(frame), width - 1, styles, hover, fill, manual?)
+        tree.draw(screen, Frame::TOP + HEAD_ROWS, 0, tree_rows(frame), width - 1, styles, hover, manual?)
       end
 
       private def draw_field(screen : Screen, cols : Int32, styles : Array(UInt16), focused : Bool) : Nil

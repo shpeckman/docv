@@ -29,7 +29,7 @@ module Docv
 
       getter rows : Int32
       getter cols : Int32
-      # Columns of a regular dock, left of the content area.
+      # Columns of the dock, left of the content area.
       getter dock : Int32
 
       def initialize(@rows : Int32, @cols : Int32, dock : Int32 = 0)
@@ -92,7 +92,7 @@ module Docv
         ((@cols - width) // 2).clamp(first, Math.max(first, limit - width))
       end
 
-      # Padding counts as content, a regular dock's columns as border.
+      # Padding counts as content, the dock's columns as border.
       def region(row : Int32, col : Int32) : Region
         if row < TOP - 1
           return Region::Close if col == close_col

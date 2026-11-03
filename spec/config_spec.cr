@@ -48,17 +48,17 @@ describe Docv::Config do
   it "reads the dock and search settings" do
     Docv::Config.parse("").picker.should eq Docv::PickerSettings.new
     Docv::Config.parse(Docv::Config::DEFAULT).picker.should eq Docv::PickerSettings.new
-    text = "[picker]\ndock = Overlay\ndock-width = 50\ndock-open = yes\nmin-group = 5\nsearch-threads = 4\n"
-    Docv::Config.parse(text).picker.should eq Docv::PickerSettings.new(Docv::DockStyle::Overlay, 50, true, 5, 4)
-    expect_raises(Docv::Config::Error, /dock must be regular or overlay/) { Docv::Config.parse("[picker]\ndock = left\n") }
+    text = "[picker]\ndock-width = 50\ndock-open = yes\nmin-group = 5\nsearch-threads = 4\n"
+    Docv::Config.parse(text).picker.should eq Docv::PickerSettings.new(50, true, 5, 4)
+    expect_raises(Docv::Config::Error, /unknown key dock in \[picker\]/) { Docv::Config.parse("[picker]\ndock = overlay\n") }
     expect_raises(Docv::Config::Error, /dock-width must be a number from 16/) { Docv::Config.parse("[picker]\ndock-width = 3\n") }
     expect_raises(Docv::Config::Error, /min-group must be a number from 2/) { Docv::Config.parse("[picker]\nmin-group = 1\n") }
-    expect_raises(Docv::Config::Error, /unknown key dock in \[viewer\]/) { Docv::Config.parse("[viewer]\ndock = overlay\n") }
+    expect_raises(Docv::Config::Error, /unknown key dock-width in \[viewer\]/) { Docv::Config.parse("[viewer]\ndock-width = 40\n") }
   end
 
   it "reads the man page settings" do
-    Docv::Config.parse("").indent.should be_nil
-    Docv::Config.parse(Docv::Config::DEFAULT).indent.should be_nil
+    Docv::Config.parse("").indent.should eq 2
+    Docv::Config.parse(Docv::Config::DEFAULT).indent.should eq 2
     config = Docv::Config.parse("[man]\nroff-unsafe = yes\nindent = 4\n")
     {config.unsafe?, config.indent}.should eq({true, 4})
     config.options.indent.should eq 4

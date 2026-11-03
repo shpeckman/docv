@@ -23,19 +23,12 @@ module Docv
   # mdoc(7)).
   record Options, unsafe : Bool = false, stdin : IO? = nil, highlight : Bool = false, indent : Int32? = nil
 
-  # How the viewer's dock sits beside the page: `Regular` narrows the page,
-  # `Overlay` covers its left edge.
-  enum DockStyle
-    Regular
-    Overlay
-  end
-
-  # Settings of the viewer's dock from `[picker]`: the *dock* style, its width
-  # in columns, whether it opens at start, the fewest pages that make a group
-  # in its tree (*min_group*), and the number of search threads (0: one less
-  # than the processor count).
-  record PickerSettings, dock : DockStyle = DockStyle::Regular, dock_width : Int32 = 36,
-    dock_open : Bool = false, min_group : Int32 = 3, search_threads : Int32 = 0
+  # Settings of the viewer's dock from `[picker]`: its width in columns,
+  # whether it opens at start, the fewest pages that make a group in its tree
+  # (*min_group*), and the number of search threads (0: one less than the
+  # processor count).
+  record PickerSettings, dock_width : Int32 = 20, dock_open : Bool = false, min_group : Int32 = 2,
+    search_threads : Int32 = 0
 
   # The user configuration, `$XDG_CONFIG_HOME/docv/config.ini`.
   class Config
@@ -56,9 +49,13 @@ module Docv
     KEYS = {
       "man"    => Set{"roff-unsafe", "indent"},
       "viewer" => Set{"start-wrapped", "syntax-highlighting"},
-      "picker" => Set{"dock", "dock-width", "dock-open", "min-group", "search-threads"},
+      "picker" => Set{"dock-width", "dock-open", "min-group", "search-threads"},
       "colors" => Theme::KEYS.keys.to_set,
     }
+
+    # :nodoc:
+    # Body indent of manual pages when `indent` is unset.
+    INDENT = 2
 
     # :nodoc:
     RANGES = {"indent" => 0..40, "dock-width" => 16..400, "min-group" => 2..1000, "search-threads" => 0..1024}
@@ -99,9 +96,9 @@ module Docv
       ; input from third parties: enable this only if you trust every page
       ; you open.
       roff-unsafe = false
-      ; Body indent of manual pages in columns. Unset: 7 for man(7) pages
-      ; and 5 for mdoc(7) pages, as groff indents them.
-      ; indent = 7
+      ; Body indent of manual pages in columns (groff indents man(7) pages
+      ; 7 and mdoc(7) pages 5).
+      indent = 2
 
       INI
 
@@ -125,17 +122,15 @@ module Docv
     private PICKER = <<-INI
       [picker]
       ; The dock left of the page holds the search field and the tree of
-      ; pages (p opens and closes it). regular: the page narrows to make
-      ; room; overlay: the dock covers the left of the page.
-      dock = regular
+      ; pages (p opens and closes it); the page narrows to make room.
       ; Width of the dock in columns; dragging its right edge changes it
       ; until the viewer quits.
-      dock-width = 36
+      dock-width = 20
       ; Open the dock at start.
       dock-open = false
       ; Fewest pages sharing a name prefix (abrt-cli, abrt-dump ...) that
       ; make a group in the tree.
-      min-group = 3
+      min-group = 2
       ; Threads that read the text of every page and search it, for the
       ; hit counts in the tree while finding in the page. 0: one less than
       ; the number of processors.
@@ -147,8 +142,8 @@ module Docv
     getter path : String?
     # Whether unsafe roff requests run.
     getter? unsafe : Bool
-    # The body indent of manual pages, if set.
-    getter indent : Int32?
+    # The body indent of manual pages in columns.
+    getter indent : Int32
     # Whether the viewer starts in the wrapped layout.
     getter? start_wrapped : Bool
     # Whether code examples are syntax highlighted.
@@ -160,7 +155,7 @@ module Docv
 
     def initialize(@path : String? = nil, @unsafe : Bool = false, @colors = {} of Theme::Role => Theme::Spec,
                    @start_wrapped : Bool = true, @syntax_highlighting : Bool = true,
-                   @picker : PickerSettings = PickerSettings.new, @indent : Int32? = nil)
+                   @picker : PickerSettings = PickerSettings.new, @indent : Int32 = INDENT)
     end
 
     # The configuration directory, `$XDG_CONFIG_HOME/docv`.
@@ -212,13 +207,12 @@ module Docv
         {Theme::KEYS[key], spec}
       end
       defaults = PickerSettings.new
-      settings = PickerSettings.new(dock_style(picker, defaults.dock, path),
-        integer(picker, "dock-width", path) || defaults.dock_width,
+      settings = PickerSettings.new(integer(picker, "dock-width", path) || defaults.dock_width,
         boolean(picker, "dock-open", defaults.dock_open, path),
         integer(picker, "min-group", path) || defaults.min_group,
         integer(picker, "search-threads", path) || defaults.search_threads)
       new(path, boolean(man, "roff-unsafe", false, path), colors, boolean(viewer, "start-wrapped", true, path),
-        boolean(viewer, "syntax-highlighting", true, path), settings, integer(man, "indent", path))
+        boolean(viewer, "syntax-highlighting", true, path), settings, integer(man, "indent", path) || INDENT)
     end
 
     private def self.boolean(values : Hash(String, String), key : String, default : Bool, path : String?) : Bool
@@ -237,12 +231,6 @@ module Docv
         raise Error.new("#{path || "config"}: #{key} must be a number from #{range.begin} to #{range.end}, not #{text}")
       end
       value
-    end
-
-    private def self.dock_style(values : Hash(String, String), default : DockStyle, path : String?) : DockStyle
-      text = values["dock"]? || return default
-      DockStyle.parse?(text.strip) ||
-        raise Error.new("#{path || "config"}: dock must be #{DockStyle.names.map(&.downcase).join(" or ")}, not #{text}")
     end
 
     # The default theme with the `[colors]` overrides.

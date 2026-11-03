@@ -261,9 +261,9 @@ module Docv
         end
       end
 
-      # *hover* is the visible row under the pointer; rows are drawn over *fill*.
+      # *hover* is the visible row under the pointer.
       def draw(screen : Screen, row : Int32, col : Int32, rows : Int32, cols : Int32, styles : Array(UInt16),
-               hover : Int32? = nil, fill : UInt16 = 0_u16, details : Bool = true) : Nil
+               hover : Int32? = nil, details : Bool = true) : Nil
         detail = styles[Theme::Role::Detail.value]
         selection = styles[Theme::Role::Selection.value]
         hovered = styles[Theme::Role::Hover.value]
@@ -275,7 +275,7 @@ module Docv
         rows.times do |offset|
           index = @top + offset
           id = @rows[index]? || break
-          row_style = Styles.merge(fill, index == @selected ? selection : (offset == hover ? hovered : 0_u16))
+          row_style = index == @selected ? selection : (offset == hover ? hovered : 0_u16)
           plain = Styles.merge(detail, row_style)
           y = row + offset
           screen.fill(y, col, cols, Cell.blank(row_style))
