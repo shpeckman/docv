@@ -424,22 +424,9 @@ module Docv
 
     # Runs *action* as if its key was pressed in the page view.
     def perform(action : Action) : Nil
-      half = Math.max(page_rows // 2, 1)
       case action
-      in .line_down?     then @top += 1
-      in .line_up?       then @top -= 1
-      in .page_down?     then @top += Math.max(page_rows - 1, 1)
-      in .page_up?       then @top -= Math.max(page_rows - 1, 1)
-      in .half_down?     then @top += half
-      in .half_up?       then @top -= half
       in .top?           then @top = 0
       in .bottom?        then @top = max_top
-      in .left?          then @left -= HORIZONTAL_STEP
-      in .right?         then @left += HORIZONTAL_STEP
-      in .half_left?     then @left -= Math.max(content_cols // 2, 1)
-      in .half_right?    then @left += Math.max(content_cols // 2, 1)
-      in .line_start?    then @left = 0
-      in .line_end?      then @left = max_left
       in .toggle_wrap?   then toggle_wrap
       in .next_link?     then focus_link(true)
       in .prev_link?     then focus_link(false)
@@ -463,26 +450,14 @@ module Docv
       clamp
     end
 
-    # Scrolling keys scroll the help; any other key closes it.
+    # Top and bottom scroll the help; any other key closes it.
     private def help_key(event : Term::KeyEvent) : Nil
       help = @help || return
-      rows = help.rows(@frame)
-      half = Math.max(content_cols // 2, 1)
       case @bindings.lookup(event)
-      when .nil?                    then @help = nil
-      when .line_down?              then help.scroll(1, @frame)
-      when .line_up?                then help.scroll(-1, @frame)
-      when .page_down?, .half_down? then help.scroll(rows, @frame)
-      when .page_up?, .half_up?     then help.scroll(-rows, @frame)
-      when .top?                    then help.scroll(-help.lines.size, @frame)
-      when .bottom?                 then help.scroll(help.lines.size, @frame)
-      when .left?                   then help.scroll_x(-HORIZONTAL_STEP, @frame)
-      when .right?                  then help.scroll_x(HORIZONTAL_STEP, @frame)
-      when .half_left?              then help.scroll_x(-half, @frame)
-      when .half_right?             then help.scroll_x(half, @frame)
-      when .line_start?             then help.scroll_x(-help.width, @frame)
-      when .line_end?               then help.scroll_x(help.width, @frame)
-      else                               @help = nil
+      when .nil?    then @help = nil
+      when .top?    then help.scroll(-help.lines.size, @frame)
+      when .bottom? then help.scroll(help.lines.size, @frame)
+      else               @help = nil
       end
     end
 
@@ -608,7 +583,6 @@ module Docv
     private def field_key(event : Term::KeyEvent) : Nil
       action = @field_bindings.lookup(event) || return
       rows = @dock.tree_rows(@frame)
-      page = Math.max(rows - 1, 1)
       case action
       in .accept?      then accept
       in .cancel?      then @focus = Focus::Tree
@@ -616,15 +590,10 @@ module Docv
       in .clear?
         @dock.field.clear
         field_changed
-      in .next?          then step(1)
-      in .previous?      then step(-1)
-      in .page_next?     then step(page)
-      in .page_previous? then step(-page)
-      in .expand?        then tree.expand(rows)
-      in .collapse?      then tree.collapse(rows)
-      in .scroll_left?   then tree.scroll_x(-HORIZONTAL_STEP, @dock.tree_cols(@frame), @dock.manual?)
-      in .scroll_right?  then tree.scroll_x(HORIZONTAL_STEP, @dock.tree_cols(@frame), @dock.manual?)
-      in .switch?        then @focus = Focus::Tree
+      in .next?     then step(1)
+      in .previous? then step(-1)
+      in .expand?   then tree.expand(rows)
+      in .collapse? then tree.collapse(rows)
       end
     end
 
@@ -654,21 +623,14 @@ module Docv
       action = @tree_bindings.lookup(event) || return false
       tree = self.tree
       rows = @dock.tree_rows(@frame)
-      page = Math.max(rows - 1, 1)
       case action
-      in .next?          then tree.move(1, rows)
-      in .previous?      then tree.move(-1, rows)
-      in .page_next?     then tree.move(page, rows)
-      in .page_previous? then tree.move(-page, rows)
-      in .first?         then tree.move(-tree.rows.size, rows)
-      in .last?          then tree.move(tree.rows.size, rows)
-      in .open?          then tree_open(tree)
-      in .expand?        then tree.expand(rows)
-      in .collapse?      then tree.collapse(rows)
-      in .scroll_left?   then tree.scroll_x(-HORIZONTAL_STEP, @dock.tree_cols(@frame), @dock.manual?)
-      in .scroll_right?  then tree.scroll_x(HORIZONTAL_STEP, @dock.tree_cols(@frame), @dock.manual?)
-      in .field?         then @focus = Focus::Field
-      in .leave?         then @focus = Focus::Page
+      in .next?     then tree.move(1, rows)
+      in .previous? then tree.move(-1, rows)
+      in .open?     then tree_open(tree)
+      in .expand?   then tree.expand(rows)
+      in .collapse? then tree.collapse(rows)
+      in .field?    then @focus = Focus::Field
+      in .leave?    then @focus = Focus::Page
       end
       @message = nil
       true

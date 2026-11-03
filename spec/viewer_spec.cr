@@ -11,11 +11,13 @@ describe Docv::Viewer::Bindings do
     end
   end
 
-  it "scrolls with the arrows, sideways too" do
-    bindings.lookup(Docv::Term::KeyEvent.new(Docv::Term::Key::DOWN)).should eq Docv::Viewer::Action::LineDown
-    bindings.lookup(Docv::Term::KeyEvent.new(Docv::Term::Key::LEFT)).should eq Docv::Viewer::Action::Left
-    bindings.lookup(Docv::Term::KeyEvent.new(Docv::Term::Key::RIGHT, Docv::Term::Mods::Shift)).should eq Docv::Viewer::Action::HalfRight
-    bindings.lookup(Docv::Term::KeyEvent.new(Docv::Term::Key::RIGHT, Docv::Term::Mods::Ctrl)).should eq Docv::Viewer::Action::LineEnd
+  it "jumps to the top and bottom, leaving finer scrolling to the mouse" do
+    bindings.lookup(Docv::Term::KeyEvent.new(Docv::Term::Key::PAGE_UP)).should eq Docv::Viewer::Action::Top
+    bindings.lookup(Docv::Term::KeyEvent.new(Docv::Term::Key::PAGE_DOWN)).should eq Docv::Viewer::Action::Bottom
+    {Docv::Term::Key::UP, Docv::Term::Key::DOWN, Docv::Term::Key::LEFT, Docv::Term::Key::RIGHT,
+     Docv::Term::Key::HOME, Docv::Term::Key::END}.each do |key|
+      bindings.lookup(Docv::Term::KeyEvent.new(key)).should be_nil
+    end
     bindings.lookup(Docv::Term::KeyEvent.new(Docv::Term::Key::LEFT, Docv::Term::Mods::Alt)).should eq Docv::Viewer::Action::Back
   end
 
@@ -25,9 +27,9 @@ describe Docv::Viewer::Bindings do
   end
 
   it "matches shifted symbols without their shift" do
-    keymap = Docv::Viewer::Bindings.new([{Docv::Term::Mods::None, '$'.ord, Docv::Viewer::Action::LineEnd}])
+    keymap = Docv::Viewer::Bindings.new([{Docv::Term::Mods::None, '$'.ord, Docv::Viewer::Action::Bottom}])
     event = Docv::Term::KeyEvent.new('4'.ord, Docv::Term::Mods::Shift, shifted: '$'.ord)
-    keymap.lookup(event).should eq Docv::Viewer::Action::LineEnd
+    keymap.lookup(event).should eq Docv::Viewer::Action::Bottom
   end
 
   it "ignores lock modifiers" do
@@ -50,10 +52,11 @@ describe Docv::Viewer::FieldBindings do
 
   it "maps editing and list keys" do
     bindings.lookup(Docv::Term::KeyEvent.new(Docv::Term::Key::ENTER)).should eq Docv::Viewer::FieldAction::Accept
-    bindings.lookup(Docv::Term::KeyEvent.new('n'.ord, Docv::Term::Mods::Ctrl)).should eq Docv::Viewer::FieldAction::Next
+    bindings.lookup(Docv::Term::KeyEvent.new(Docv::Term::Key::DOWN)).should eq Docv::Viewer::FieldAction::Next
     bindings.lookup(Docv::Term::KeyEvent.new(Docv::Term::Key::UP)).should eq Docv::Viewer::FieldAction::Previous
+    bindings.lookup(Docv::Term::KeyEvent.new(Docv::Term::Key::TAB)).should eq Docv::Viewer::FieldAction::Cancel
     bindings.lookup(Docv::Term::KeyEvent.new('j'.ord)).should be_nil
-    bindings.lookup(Docv::Term::KeyEvent.new(Docv::Term::Key::F1 + 2)).should eq Docv::Viewer::FieldAction::Next
+    bindings.lookup(Docv::Term::KeyEvent.new('n'.ord, Docv::Term::Mods::Ctrl)).should be_nil
   end
 end
 
@@ -148,9 +151,9 @@ describe Docv::Viewer::Help do
   help = Docv::Viewer::Help.new(Docv::Viewer::Bindings.new, Docv::Viewer::FieldBindings.new)
 
   it "lists every bound action with its keys, the search bar and panel keys and the mouse" do
-    help.lines.find! { |line| line.text == "line down" }.keys.should eq "↓ Ctrl-n Ctrl-e"
+    help.lines.find! { |line| line.text == "top" }.keys.should eq "PgUp"
     help.lines.find! { |line| line.text == "this help" }.keys.should eq "F1"
-    help.lines.find! { |line| line.text == "previous match or page" }.keys.should eq "↑ Ctrl-p Shift-Tab Shift-F3"
+    help.lines.find! { |line| line.text == "previous match or page" }.keys.should eq "↑"
     help.lines.find! { |line| line.text == "back to the page" }.keys.should eq "Esc"
     help.lines.select(&.heading).map(&.keys).should eq ["Keys", "Search field", "Tree", "Mouse"]
     Docv::Viewer::ACTION_HELP.keys.should eq Docv::Viewer::Action.values
@@ -189,7 +192,7 @@ describe Docv::Viewer::Help do
     scroller.scroll_x(2, narrow)
     scroller.draw(screen, narrow, styles)
     screen[Docv::Viewer::Frame::TOP, 1].ch.should eq 'y'
-    screen[Docv::Viewer::Frame::TOP + 1, 1].ch.should eq 'C'
+    screen[Docv::Viewer::Frame::TOP + 1, 1].ch.should eq 'U'
   end
 
   it "draws in the page area, after the dock" do
@@ -198,7 +201,7 @@ describe Docv::Viewer::Help do
     styles = Docv::Theme.new.styles(Docv::Palette.new(true), Docv::ColorDepth::TrueColor)
     help.draw(screen, docked, styles)
     screen[Docv::Viewer::Frame::TOP, 21].ch.should eq 'K'
-    screen[Docv::Viewer::Frame::TOP + 1, 21].ch.should eq '↓'
+    screen[Docv::Viewer::Frame::TOP + 1, 21].ch.should eq 'P'
     screen[Docv::Viewer::Frame::TOP, 20].ch.should eq ' '
   end
 end

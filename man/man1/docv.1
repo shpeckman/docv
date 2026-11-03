@@ -319,33 +319,12 @@ combinations work on any keyboard layout.
 takes the keyboard one level out: from the search field to the tree, from
 the tree to the page.
 .SS The page
+The mouse scrolls the page (see
+.BR MOUSE );
+the keys jump.
 .TP
-.BR \(da ", " Ctrl\-n ", " Ctrl\-e
-Line down.
-.TP
-.BR \(ua ", " Ctrl\-p ", " Ctrl\-y
-Line up.
-.TP
-.B PgDn
-Page down.
-.TP
-.B PgUp
-Page up.
-.TP
-.BR Ctrl\-d " / " Ctrl\-u
-Half a page down / up.
-.TP
-.BR Home " / " End
+.BR PgUp " / " PgDn
 Top / bottom.
-.TP
-.BR \(<- " / " \(->
-Scroll left / right by 8 columns.
-.TP
-.BR Shift\-\(<- " / " Shift\-\(->
-Scroll left / right by half a screen.
-.TP
-.BR Ctrl\-\(<- " / " Ctrl\-\(->
-Line start / line end.
 .TP
 .B Alt\-z
 Switch between the wrapped and the unwrapped layout.
@@ -388,8 +367,11 @@ Show the help in place of the page, with
 .B HELP
 as the heading of the title row: every key as it is bound, and the mouse
 gestures.
-The scrolling keys and the wheel scroll it, also sideways
-.RB ( \(<- ", " \(-> ", " Shift\-\(<- ", " Shift\-\(-> ", " Ctrl\-\(<- ", " Ctrl\-\(-> ", " Shift\- wheel);
+The wheel scrolls it, also sideways
+.RB ( Shift\- wheel),
+and
+.BR PgUp " / " PgDn
+jump to its top / bottom;
 any other key or a click closes it.
 .TP
 .B Esc
@@ -410,7 +392,7 @@ Give the page the keyboard at the selected match; during a
 .B /
 search, open the selected page, or fold or unfold the selected group.
 .TP
-.BR Esc ", " Ctrl\-c ", " Ctrl\-g ", " Tab
+.BR Esc ", " Tab
 Give the tree the keyboard.
 .TP
 .B Backspace
@@ -419,30 +401,18 @@ Delete the last character.
 .B Ctrl\-u
 Clear the field.
 .TP
-.BR \(da ", " Ctrl\-n ", " F3 " / " \(ua ", " Ctrl\-p ", " Shift\-Tab ", " Shift\-F3
+.BR \(da " / " \(ua
 Next / previous match, or row of the tree.
-.TP
-.BR PgDn " / " PgUp
-A screenful of matches or rows down / up.
 .TP
 .BR \(-> " / " \(<-
 Unfold the selected group, or step into it when it is open / fold it, or
 step out to the group around the selected page or folded group.
-.TP
-.BR Shift\-\(-> " / " Shift\-\(<-
-Scroll the tree right / left.
 .SS The tree
 Text goes to the search field, and keys the tree does not bind go to the
 page.
 .TP
-.BR \(da ", " Ctrl\-n " / " \(ua ", " Ctrl\-p
+.BR \(da " / " \(ua
 Next / previous page or group.
-.TP
-.BR PgDn " / " PgUp
-A screenful down / up.
-.TP
-.BR Home " / " End
-First / last row.
 .TP
 .B Enter
 Open the selected page, or fold or unfold the selected group.
@@ -450,9 +420,6 @@ Open the selected page, or fold or unfold the selected group.
 .BR \(-> " / " \(<-
 Unfold the selected group, or step into it when it is open / fold it, or
 step out to the group around the selected page or folded group.
-.TP
-.BR Shift\-\(-> " / " Shift\-\(<-
-Scroll the tree right / left.
 .TP
 .B Tab
 Give the search field the keyboard.
