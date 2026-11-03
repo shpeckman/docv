@@ -10,7 +10,8 @@ description: |
   tbl tables) and Markdown documents (CommonMark with GitHub extensions) into
   one document model, lays them out wrapped or unwrapped, and shows them in a
   terminal viewer with a row-diffing cell grid renderer, kitty keyboard
-  protocol, SGR-pixel mouse input and OSC 8 hyperlinks.
+  protocol, SGR-pixel mouse input, OSC 8 hyperlinks and syntax highlighting of
+  code through tree-sitter grammars.
 
 crystal: ">= 1.21.0"
 
@@ -20,6 +21,9 @@ dependencies:
   markd:
     github: icyleaf/markd
     version: ~> 0.6.0
+  treesitter:
+    github: shpeckman/treesitter
+    branch: main
 
 targets:
   docv:

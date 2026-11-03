@@ -448,6 +448,82 @@ Quit.
 .TP
 back button
 Back to the previous page.
+.SH SYNTAX HIGHLIGHTING
+With
+.B syntax\-highlighting
+on (the default; see
+.MR docv\-config 5 ),
+code examples are colored by their syntax with tree-sitter: Markdown code
+blocks labeled with a language
+.RB ( \(ga\(ga\(gacrystal ;
+aliases such as
+.BR cr ,
+.BR sh ,
+.BR js ,
+.B py
+and
+.B yml
+work), and the
+.B .EX
+examples of manual pages in a section that names a language: the
+.B 3cr
+and
+.B 7cr
+pages of
+.B gen\-cr
+are Crystal.
+.PP
+A language takes a grammar, a shared library
+.BI libtree\-sitter\- name .so
+or
+.IB name .so\c
+, and its highlight query
+.IB name /highlights.scm\c
+\&.
+.B docv
+ships neither and looks where editors install them: grammars in
+.IR ~/.local/lib ,
+.IR /usr/local/lib ,
+.IR /usr/local/lib64 ,
+.IR /usr/lib ,
+.IR /usr/lib64 ,
+.IR $XDG_DATA_HOME/docv/grammars ,
+the
+.B nvim
+.I parser
+directories
+.RI ( $XDG_DATA_HOME/nvim/site/parser ,
+.IR $XDG_DATA_HOME/\:nvim/\:lazy/\:nvim\-treesitter/\:parser )
+and the
+.B helix
+.I runtime/grammars
+directories; queries in
+.IR $XDG_DATA_HOME/docv/queries ,
+.IR $XDG_DATA_HOME/tree\-sitter/queries ,
+the
+.B nvim
+.I queries
+directories (also
+.IR /usr/share/nvim/runtime/queries )
+and the
+.B helix
+.I runtime/queries
+directories.
+A query's
+.B ; inherits:
+line puts the named languages' queries first.
+A language without a grammar or query, or whose query the grammar rejects,
+stays plain.
+.PP
+Captures take the
+.B syntax\-
+roles by their longest known dotted prefix, so
+.B keyword.function
+is a keyword.
+An inner capture overrides the one around it; of two captures of one node
+the later pattern wins, or for
+.B helix
+queries the earlier one.
 .SH LINKS
 A cross-reference
 .IB name ( section )
@@ -552,6 +628,12 @@ selects 24-bit color, one with
 .B XDG_CONFIG_HOME
 The base of the configuration directory,
 .I ~/.config
+when unset or not absolute.
+.TP
+.B XDG_DATA_HOME
+The base of the grammar and query directories (see
+.BR "SYNTAX HIGHLIGHTING" ),
+.I ~/.local/share
 when unset or not absolute.
 .TP
 .B XDG_CACHE_HOME

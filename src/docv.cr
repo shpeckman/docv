@@ -22,6 +22,7 @@ require "./docv/roff/unsafe"
 require "./docv/macros/man"
 require "./docv/macros/mdoc"
 require "./docv/markdown"
+require "./docv/syntax"
 require "./docv/layout"
 require "./docv/fuzzy"
 require "./docv/index"
@@ -49,7 +50,7 @@ module Docv
   # named like a Markdown document (`Markdown.file?`), roff otherwise.
   def self.load(path : String, options : Options = Options.new) : Document
     text = Source.read(path)
-    Markdown.file?(path) ? Markdown.parse(text) : parse(text, path, options)
+    Markdown.file?(path) ? Markdown.parse(text, options.highlight) : parse(text, path, options)
   end
 
   # Finds the file of page *name* in *section* along *manpath*

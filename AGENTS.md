@@ -1,15 +1,15 @@
 <!-- AGENTS.md -->
 # AGENTS.md
 
-Orientation for AI agents working on docv: a Crystal shard that parses manual pages (roff with man(7), mdoc(7), tbl(1)) and Markdown documents (through markd), lays them out wrapped or unwrapped, and shows them in a terminal viewer. It also generates man pages for Crystal shards (`docv gen-cr`). Namespace `Docv`. Its one dependency is markd (`shards install`); everything else is the standard library.
+Orientation for AI agents working on docv: a Crystal shard that parses manual pages (roff with man(7), mdoc(7), tbl(1)) and Markdown documents (through markd), lays them out wrapped or unwrapped, and shows them in a terminal viewer. It also generates man pages for Crystal shards (`docv gen-cr`). Namespace `Docv`. Its dependencies are markd and treesitter (`shards install`; treesitter links libtree-sitter through pkg-config); everything else is the standard library.
 
 ## Layout
 
 ```
-shard.yml                   name docv, target docv (src/cli.cr), dependency markd ~> 0.6.0
+shard.yml                   name docv, target docv (src/cli.cr), dependencies markd ~> 0.6.0, treesitter (main)
 makefile                    spec, build, release, docs, format, install, clean
 src/docv.cr                 entry "docv": parser + layout; Docv.parse/load (Markdown by name)/find/open
-src/docv/style.cr           Attr (incl. Strike), Markup (Code, CodeBlock, Quote, Rule, Image), ColorDepth,
+src/docv/style.cr           Attr (incl. Strike), Markup (Code, CodeBlock, Quote, Rule, Image, Syntax*), ColorDepth,
                             Color (default/palette/RGB in 32 bits), Style (attr, colors, markup; merge,
                             to_sgr), Styles (16-bit id interning, merge), Colors (roff names, defcolor)
 src/docv/palette.cr         Palette: terminal theme as RGB (OSC 21 values, xterm fallback), ramp, reduce
@@ -23,9 +23,9 @@ src/docv/manpath.cr         Manpath: roots (trees and flat dirs, project flag), 
                             SECTION, split, rank
 src/docv/theme.cr           Theme: Role enum (Heading1-6, markup roles), spec grammar (parse), DEFAULT and
                             MONOCHROME tables, KEYS, styles(palette, depth)
-src/docv/config.cr          Docv.user_directory (XDG base dirs), Options (unsafe, stdin), Config
-                            ($XDG_CONFIG_HOME/docv/config.ini: [roff] unsafe, [viewer] start-wrapped,
-                            [colors]; load creates DEFAULT, parse validates KEYS and BOOLEANS; [colors]
+src/docv/config.cr          Docv.base_directory, Docv.user_directory (XDG base dirs), Options (unsafe,
+                            stdin, highlight), Config ($XDG_CONFIG_HOME/docv/config.ini: [roff] unsafe,
+                            [viewer] start-wrapped and syntax-highlighting, [colors]; load creates DEFAULT, parse validates KEYS and BOOLEANS; [colors]
                             keys and defaults come from Theme)
 src/docv/fuzzy.cr           Fuzzy: fzf-style scoring (BONUS table, ASCII classes), DP alignment, positions
 src/docv/index.cr           Index: pages along a Manpath and its project's documents (project first),
@@ -36,6 +36,11 @@ src/docv/markdown.cr        Markdown: EXTENSIONS, file?, parse, tree (markd with
                             slug, alert_title, description; Converter: markd tree into Blocks (lists,
                             quotes, code, expand tables, HTML stripped), inline spans (ATTRIBUTES, markup,
                             link targets), anchors
+src/docv/syntax.cr          Syntax: tree-sitter highlighting; ALIASES (labels), SECTION_LANGUAGES (3cr),
+                            CAPTURES (capture prefixes to Markup), grammar_directories, query_directories
+                            (QueryDirectory first_wins: docv's, $XDG_DATA_HOME/tree-sitter/queries, nvim,
+                            helix), grammar cache (parser + query), inherits,
+                            highlight (runs per line), apply (blocks of one example), clear
 src/docv/roff/cursor.cr     Cursor: char reader passed by reference between scanners
 src/docv/roff/numeric.cr    expressions in terminal units (24u per column, 40u per line), MAX_EXTENT clamp
 src/docv/roff/registers.cr  number registers, .af formats
@@ -50,7 +55,8 @@ src/docv/roff/requests.cr   every roff request (NO_OP set, BREAKING set; UNSAFE 
 src/docv/roff/tbl.cr        Tbl: .TS/.TE options, format rows, data, T{ T} blocks
 src/docv/roff/unsafe.cr     UNSAFE set and its requests (sy pso pi open opena write writec writem close
                             cf trf rd), shell helper (null stdio), streams, pi at end of run
-src/docv/macros/man.cr      Man package (TH SH SS PP TP IP HP RS RE fonts EX UR MT SY OP MR ...)
+src/docv/macros/man.cr      Man package (TH SH SS PP TP IP HP RS RE fonts EX UR MT SY OP MR ...); EX..EE
+                            highlighted for pages with a section language
 src/docv/macros/mdoc_data.cr  MdocData: indents, fonts, enclosures, standards, libraries, callable set
 src/docv/macros/mdoc.cr     Mdoc package: tokens, delimiters, inline macros, lists, displays, synopsis
 src/docv/layout.cr          Layout (lines with or without header and footer, header_line, footer_line; none
@@ -108,7 +114,7 @@ The CLI handles `path-add`/`path-rm`/`path-list` (they only touch `Manpath.paths
 
 roff: `Engine#run` pushes the file onto the input stack. Each line is a control line (request, user macro, or package macro, looked up in that order; `.TS` goes to `Tbl` first) or a text line (interpolated, then formatted by `Inline` into the `Builder`). User macros take precedence over package macros, and package macros over requests. The package (`Man` or `Mdoc`) is chosen by the first macro either one knows. `.SH`/`.Sh` are headings of level 1, `.SS`/`.Ss` of level 2.
 
-Markdown: markd parses with GFM and extended autolinks (`Markdown::OPTIONS`); when markd raises `ArgumentError` (its autolinks can slice into a multibyte character next to an `@`) it parses again without autolinks. `Converter` walks the tree recursively with a state of indent, quote bars, list depth, tightness and a pending list tag. `emit` places a block after a due blank (`@space`), with the pending tag; `add` places continuation blocks. Inline nodes become spans: `ATTRIBUTES` for strong/emphasis/strikethrough, `Markup` on the style for code, code blocks, quote bars, rules and images, and `Span#link` for links (`target_id` interns a `Target` into `Document#links`). Headings record GitHub anchors in `Document#anchors`. Raw HTML loses its tags (`HTML_MARKUP`).
+Markdown: markd parses with GFM and extended autolinks (`Markdown::OPTIONS`); when markd raises `ArgumentError` (its autolinks can slice into a multibyte character next to an `@`) it parses again without autolinks. `Converter` walks the tree recursively with a state of indent, quote bars, list depth, tightness and a pending list tag. `emit` places a block after a due blank (`@space`), with the pending tag; `add` places continuation blocks. Inline nodes become spans: `ATTRIBUTES` for strong/emphasis/strikethrough, `Markup` on the style for code, code blocks, quote bars, rules and images, and `Span#link` for links (`target_id` interns a `Target` into `Document#links`). Headings record GitHub anchors in `Document#anchors`. Raw HTML loses its tags (`HTML_MARKUP`). With highlighting (`Options#highlight`, from `[viewer] syntax-highlighting`), a fenced block with a language label goes through `Syntax.apply`; so does a man `.EX` example of a page whose section suffix is in `Syntax::SECTION_LANGUAGES`. `Syntax` loads a grammar and its `highlights.scm` once per language (or remembers that it has none), marks each byte of the code with the `Markup` of its captures (inner over outer; same node: later pattern, or earlier for `first_wins` directories) and rewrites the blocks' spans as runs; the viewer styles them through `MARKUP_ROLES`. `Markdown.description` (the index) never highlights.
 
 Blocks carry only layout intent (indent, offset, tag, fill, align, tabs, level, bars). `Layout` places cells per width (a table with `expand`, which every Markdown table has, takes the full width): the `Tokenizer` keeps each cell's span link when any span has one, `flow_into` turns runs of linked cells into `Layout::Link`s (merged across blanks for one target) and otherwise finds `name(section)` cross-references with `LINK`; `bar` draws the quote bars on every row of a block. `Viewer` caches layouts per `{width, wrap}` and keeps the reading position across layouts through `Line#block`/`Line#offset`.
 
@@ -141,4 +147,5 @@ The viewer can be driven headless in tmux: `tmux -L test new-session -d -x 90 -y
 - Do not change the version in `shard.yml`.
 - Keep README.md (usage and public API), the man pages in `man/` (command, keys, config) and this file in sync with the code. `spec/manual_spec.cr` parses the man pages and fails on unknown macros; `groff -man -Tutf8 -ww -z` should stay silent on them too.
 - Crystal gotchas met here: no trailing `while`/`until` modifiers; `macro`, `out`, `lib` are reserved names; `Char::Reader` is a struct (pass a `Cursor`); `String#[]` with a char index is O(n) on non-ASCII strings; `Array#[-1]?` is the last element, so guard 1-based ids before `[id - 1]?`.
+- Syntax gotchas: docv ships no grammars or queries, so `spec/syntax_spec.cr` uses treesitter's JSON fixture grammar (compiled with `cc`) and writes its queries to a temp directory; `Syntax.clear` after changing `grammar_directories`/`query_directories`. A new label alias goes in `Syntax::ALIASES`, a capture name in `Syntax::CAPTURES`, a section language in `SECTION_LANGUAGES`, a new syntax color in `Markup`, `Theme::Role`, `DEFAULT`, `MONOCHROME` and `MARKUP_ROLES`.
 - markd gotchas: `Node#data` of a list is the same hash as its first item's; table cells hold inline children; text is split into several text nodes at `:` and other characters (`CrystalPages.blocks` merges them); `Renderer` builds strings, so the converters walk `first_child?`/`next?` themselves.

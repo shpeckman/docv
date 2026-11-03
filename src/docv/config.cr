@@ -2,21 +2,27 @@
 require "ini"
 
 module Docv
+  # An XDG base directory: `$variable`, or `~/fallback` when the variable is
+  # unset or not an absolute path.
+  def self.base_directory(variable : String, fallback : String) : String
+    base = ENV[variable]?
+    base.nil? || base.empty? || !Path[base].absolute? ? Path.home.join(fallback).to_s : base
+  end
+
   # This program's directory under an XDG base directory: `$variable/docv`,
   # or `~/fallback/docv` when the variable is unset or not an absolute
   # path.
   def self.user_directory(variable : String, fallback : String) : String
-    base = ENV[variable]?
-    base = Path.home.join(fallback).to_s if base.nil? || base.empty? || !Path[base].absolute?
-    File.join(base, "docv")
+    File.join(base_directory(variable, fallback), "docv")
   end
 
   # Parsing options.
   #
   # *unsafe* enables the requests that run commands or touch files (see
   # `Roff::Engine::UNSAFE`) and the `\V` escape. *stdin* is where `.rd` reads
-  # from; `nil` makes `.rd` read nothing.
-  record Options, unsafe : Bool = false, stdin : IO? = nil
+  # from; `nil` makes `.rd` read nothing. *highlight* colors code examples
+  # with tree-sitter grammars (`Syntax`).
+  record Options, unsafe : Bool = false, stdin : IO? = nil, highlight : Bool = false
 
   # The user configuration in `$XDG_CONFIG_HOME/docv/config.ini`
   # (`~/.config/docv/config.ini` when the variable is unset or not an
@@ -36,7 +42,7 @@ module Docv
     }
 
     # Known keys per section.
-    KEYS = {"roff" => Set{"unsafe"}, "viewer" => Set{"start-wrapped"}, "colors" => Theme::KEYS.keys.to_set}
+    KEYS = {"roff" => Set{"unsafe"}, "viewer" => Set{"start-wrapped", "syntax-highlighting"}, "colors" => Theme::KEYS.keys.to_set}
 
     # The `[colors]` explanation in `DEFAULT`, followed there by every role
     # with its default, commented out.
@@ -85,6 +91,13 @@ module Docv
       ; paragraph, scrolled sideways. -u on the command line starts unwrapped
       ; either way.
       start-wrapped = true
+      ; Color code examples by their syntax: Markdown code blocks labeled
+      ; with a language (```crystal) and the examples of the pages docv
+      ; gen-cr makes. It takes a tree-sitter grammar and its highlights.scm
+      ; query, found in ~/.local/lib and $XDG_DATA_HOME/tree-sitter/queries,
+      ; where nvim and helix install them, or in $XDG_DATA_HOME/docv/grammars
+      ; and $XDG_DATA_HOME/docv/queries/<language>/.
+      syntax-highlighting = true
 
       INI
 
@@ -94,11 +107,13 @@ module Docv
     getter? unsafe : Bool
     # Whether the viewer starts in the wrapped layout.
     getter? start_wrapped : Bool
+    # Whether code examples are syntax highlighted.
+    getter? syntax_highlighting : Bool
     # Role styles from `[colors]`.
     getter colors : Hash(Theme::Role, Theme::Spec)
 
     def initialize(@path : String? = nil, @unsafe : Bool = false, @colors = {} of Theme::Role => Theme::Spec,
-                   @start_wrapped : Bool = true)
+                   @start_wrapped : Bool = true, @syntax_highlighting : Bool = true)
     end
 
     # The configuration directory: `$XDG_CONFIG_HOME/docv`.
@@ -147,7 +162,8 @@ module Docv
         end
         {Theme::KEYS[key], spec}
       end
-      new(path, boolean(roff, "unsafe", false, path), colors, boolean(viewer, "start-wrapped", true, path))
+      new(path, boolean(roff, "unsafe", false, path), colors, boolean(viewer, "start-wrapped", true, path),
+        boolean(viewer, "syntax-highlighting", true, path))
     end
 
     private def self.boolean(values : Hash(String, String), key : String, default : Bool, path : String?) : Bool
@@ -164,7 +180,7 @@ module Docv
 
     # Parsing options from this configuration; *stdin* feeds `.rd`.
     def options(stdin : IO? = nil) : Options
-      Options.new(@unsafe, stdin)
+      Options.new(@unsafe, stdin, @syntax_highlighting)
     end
   end
 end

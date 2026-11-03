@@ -63,9 +63,10 @@ module Docv
     OPTIONS       = Markd::Options.new(gfm: true, autolink: true)
     PLAIN_OPTIONS = Markd::Options.new(gfm: true)
 
-    # Parses Markdown *text*.
-    def self.parse(text : String) : Document
-      Converter.new.run(tree(text))
+    # Parses Markdown *text*; with *highlight*, code blocks labeled with a
+    # language are syntax highlighted (`Syntax`).
+    def self.parse(text : String, highlight : Bool = false) : Document
+      Converter.new(highlight).run(tree(text))
     end
 
     # The markd tree of *text*. Text that markd's extended autolinks cannot
@@ -122,6 +123,9 @@ module Docv
       @single_line = false
       @targets = {} of Target => Int32
       @slugs = {} of String => Int32
+
+      def initialize(@highlight : Bool)
+      end
 
       def run(root : Markd::Node) : Document
         @doc.format = Format::Markdown
@@ -226,9 +230,11 @@ module Docv
         @space = true
       end
 
-      # One unfilled block per line.
+      # One unfilled block per line; a fenced block with a language label
+      # is highlighted when asked to.
       private def code(node : Markd::Node) : Nil
         style = Styles.id(Style.new(markup: Markup::CodeBlock))
+        start = @doc.blocks.size
         node.text.chomp.split('\n').each_with_index do |line, index|
           block = index == 0 ? emit(BlockKind::Text) : add(BlockKind::Text)
           block.indent = @indent + CODE_INDENT
@@ -236,6 +242,10 @@ module Docv
           block.tabs = CODE_TABS
           line = line.rchop('\r')
           block.spans = [Span.new(line, style)] unless line.empty?
+        end
+        if @highlight && (language = Syntax.language(node.fence_language))
+          blocks = @doc.blocks[start..].select { |block| block.kind.text? && !block.fill? }
+          Syntax.apply(blocks, language)
         end
         @space = true
       end

@@ -97,6 +97,21 @@ Default
 switches between the layouts, and
 .B \-u
 on the command line starts unwrapped either way.
+.TP
+.B syntax\-highlighting
+Color code examples by their syntax with tree-sitter grammars and their
+.I highlights.scm
+queries: Markdown code blocks labeled with a language, and the examples of
+the pages
+.B docv gen\-cr
+makes.
+Default
+.BR true .
+See
+.B SYNTAX HIGHLIGHTING
+in
+.MR docv 1
+for where grammars and queries are looked for.
 .SH "THE [colors] SECTION"
 Every element of the viewer is drawn in a role, and each key of this
 section restyles one role.
@@ -212,6 +227,46 @@ The bars of block quotes.
 .RB ( "italic foreground\-40" )
 The description standing for an image.
 .TP
+.B syntax\-keyword
+.RB ( "bold magenta" )
+Keywords in highlighted code.
+.TP
+.B syntax\-string
+.RB ( green )
+Strings and characters.
+.TP
+.B syntax\-comment
+.RB ( "italic foreground\-45" )
+Comments.
+.TP
+.B syntax\-function
+.RB ( blue )
+Functions, methods and constructors.
+.TP
+.B syntax\-type
+.RB ( cyan )
+Types, namespaces and modules.
+.TP
+.B syntax\-constant
+.RB ( red )
+Constants, numbers, booleans and built-in variables.
+.TP
+.B syntax\-operator
+.RB ( foreground\-15 )
+Operators.
+.TP
+.B syntax\-punctuation
+.RB ( foreground\-35 )
+Brackets and delimiters.
+.TP
+.B syntax\-property
+.RB ( bright\-cyan )
+Properties, fields and attributes.
+.TP
+.B syntax\-tag
+.RB ( bright\-blue )
+Markup tags.
+.TP
 .B link
 .RB ( "underline magenta" )
 Links: cross-references, files, headings, URLs.
@@ -313,6 +368,7 @@ unsafe = false
 
 [viewer]
 start\-wrapped = false
+syntax\-highlighting = false
 
 [colors]
 heading1 = bold #ff8800

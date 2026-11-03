@@ -35,6 +35,8 @@ module Docv::Macros
     @distance = 1
     @levels = [] of {Int32, Int32}
     @link : String? = nil
+    # The builder and first block of the example in `.EX`, for highlighting.
+    @example : {Roff::Builder, Int32}? = nil
 
     def handles?(name : String) : Bool
       MACROS.includes?(name)
@@ -42,6 +44,16 @@ module Docv::Macros
 
     def format : Format
       Format::Man
+    end
+
+    # Highlights the example that `.EE` ends, when highlighting is on and
+    # the page's section names its language (`Syntax.page_language`).
+    private def highlight_example : Nil
+      builder, start = @example || return
+      @example = nil
+      return unless @engine.options.highlight && builder == @engine.builder
+      language = Syntax.page_language(@engine.source.path) || return
+      Syntax.apply(builder.blocks[start..], language)
     end
 
     def call(name : String, line : String) : Nil
@@ -97,9 +109,11 @@ module Docv::Macros
       when "EX"
         builder.break_line
         env.fill = false
+        @example = {builder, builder.blocks.size}
       when "EE"
         builder.break_line
         env.fill = true
+        highlight_example
       when "UR", "MT"
         @link = @engine.split_args(line).first?
       when "UE", "ME"

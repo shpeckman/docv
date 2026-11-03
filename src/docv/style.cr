@@ -25,6 +25,17 @@ module Docv
     Rule
     # The text standing for an image.
     Image
+    # Syntax of highlighted code (`Syntax::CAPTURES`).
+    SyntaxKeyword
+    SyntaxString
+    SyntaxComment
+    SyntaxFunction
+    SyntaxType
+    SyntaxConstant
+    SyntaxOperator
+    SyntaxPunctuation
+    SyntaxProperty
+    SyntaxTag
   end
 
   # How many colors the terminal shows.

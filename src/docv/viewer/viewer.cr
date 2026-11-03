@@ -65,6 +65,11 @@ module Docv
     MARKUP_ROLES = {
       Markup::Code => Theme::Role::Code, Markup::CodeBlock => Theme::Role::CodeBlock,
       Markup::Quote => Theme::Role::Quote, Markup::Rule => Theme::Role::Rule, Markup::Image => Theme::Role::Image,
+      Markup::SyntaxKeyword => Theme::Role::SyntaxKeyword, Markup::SyntaxString => Theme::Role::SyntaxString,
+      Markup::SyntaxComment => Theme::Role::SyntaxComment, Markup::SyntaxFunction => Theme::Role::SyntaxFunction,
+      Markup::SyntaxType => Theme::Role::SyntaxType, Markup::SyntaxConstant => Theme::Role::SyntaxConstant,
+      Markup::SyntaxOperator => Theme::Role::SyntaxOperator, Markup::SyntaxPunctuation => Theme::Role::SyntaxPunctuation,
+      Markup::SyntaxProperty => Theme::Role::SyntaxProperty, Markup::SyntaxTag => Theme::Role::SyntaxTag,
     }
 
     # Roles of whole heading lines by `Block#level`, from level 1.
@@ -131,6 +136,7 @@ module Docv
     @screen : Screen
     @frame = Frame.new(24, 80)
     @manpath : Manpath
+    @options : Options
     @events = Channel(Bytes | Symbol).new(64)
     @layouts = Hash({Int32, Bool}, Array(Layout::Line)).new
     @header : Layout::Line? = nil
@@ -166,8 +172,9 @@ module Docv
     @drag_grab = 0
     @press_target = DragTarget::None
 
-    # *options* applies to pages opened through links and the page search;
-    # `.rd` never reads there, since the terminal belongs to the viewer.
+    # *options* (unsafe requests, syntax highlighting) applies to pages
+    # opened through links and the page search; `.rd` never reads there,
+    # since the terminal belongs to the viewer.
     # *theme* styles the viewer (`Config#theme`); its colors follow the
     # terminal theme once the terminal answers the OSC 21 query, and are
     # off with `NO_COLOR` (*depth*).
@@ -175,7 +182,7 @@ module Docv
                    @manpath : Manpath = Manpath.default, @tty : Term::Tty = Term::Tty.new,
                    options : Options = Options.new, @theme : Theme = Theme.new,
                    @depth : ColorDepth = Term::Tty.color_depth)
-      @options = Options.new(options.unsafe)
+      @options = options.copy_with(stdin: nil)
       @page = Page.new(document, path)
       @screen = Screen.new(@frame.rows, @frame.cols)
       @palette = Palette.new(@dark)

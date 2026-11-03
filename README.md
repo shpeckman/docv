@@ -1,7 +1,7 @@
 <!-- README.md -->
 # docv
 
-Parses manual pages and Markdown documents and shows them in a terminal viewer. Written in Crystal; besides the standard library it uses [markd](https://github.com/icyleaf/markd) for Markdown.
+Parses manual pages and Markdown documents and shows them in a terminal viewer. Written in Crystal; besides the standard library it uses [markd](https://github.com/icyleaf/markd) for Markdown and [treesitter](https://github.com/shpeckman/treesitter) for syntax highlighting.
 
 - **Parser.** A roff interpreter with the man(7) and mdoc(7) macro packages and the tbl(1) preprocessor built in natively. It reads plain and gzip page files and follows `.so` includes. Markdown files (CommonMark with the GitHub extensions) go through markd into the same model (see [Markdown](#markdown)). The result is a document model of blocks and styled spans, with link targets and heading anchors.
 - **Layout.** Turns a document into lines of cells. The *wrapped* layout fills paragraphs to the width. The *unwrapped* layout puts each paragraph on one line. Unfilled text and tables never wrap. Lines carry their links: the span links of a document, and cross-references such as `ls(1)` detected in the text.
@@ -11,7 +11,9 @@ Parses manual pages and Markdown documents and shows them in a terminal viewer. 
 
 - Crystal 1.21 or newer
 - Linux (the viewer uses `termios` and `TIOCGWINSZ`)
-- [markd](https://github.com/icyleaf/markd) 0.6 (installed by `shards install`)
+- [markd](https://github.com/icyleaf/markd) 0.6 and [treesitter](https://github.com/shpeckman/treesitter) (installed by `shards install`)
+- libtree-sitter 0.25 or newer, found through `pkg-config` (Fedora: `libtree-sitter-devel`); it is linked in always
+- for syntax highlighting: tree-sitter grammars and their `highlights.scm` queries (see [Syntax highlighting](#syntax-highlighting))
 
 ## Installation
 
@@ -88,12 +90,14 @@ unsafe = false
 
 [viewer]
 start-wrapped = true
+syntax-highlighting = true
 ```
 
 | Key                     | Default | Meaning                                                                    |
 |-------------------------|---------|----------------------------------------------------------------------------|
 | `roff.unsafe`           | `false` | run the requests that execute commands or access files (see [roff coverage](#roff-coverage)); booleans accept `true`/`false`, `yes`/`no`, `on`/`off`, `1`/`0` |
 | `viewer.start-wrapped`  | `true`  | start in the wrapped layout; `false` starts unwrapped (`w` switches, `-u` starts unwrapped either way) |
+| `viewer.syntax-highlighting` | `true` | color code examples by their syntax (see [Syntax highlighting](#syntax-highlighting)) |
 
 ### Colors
 
@@ -134,6 +138,16 @@ On entering, the viewer asks the terminal for its theme with OSC 21 (kitty's col
 | `colors.code-block`              | `yellow`                  | code blocks in documents |
 | `colors.quote`                   | `foreground-60`           | the `│` bars of block quotes |
 | `colors.image`                   | `italic foreground-40`    | the description standing for an image |
+| `colors.syntax-keyword`          | `bold magenta`            | keywords in highlighted code (`keyword`, `conditional`, `repeat`, `include`, `exception`, …) |
+| `colors.syntax-string`           | `green`                   | strings and characters |
+| `colors.syntax-comment`          | `italic foreground-45`    | comments |
+| `colors.syntax-function`         | `blue`                    | functions, methods, constructors |
+| `colors.syntax-type`             | `cyan`                    | types, namespaces, modules |
+| `colors.syntax-constant`         | `red`                     | constants, numbers, booleans, built-in variables |
+| `colors.syntax-operator`         | `foreground-15`           | operators |
+| `colors.syntax-punctuation`      | `foreground-35`           | brackets, delimiters |
+| `colors.syntax-property`         | `bright-cyan`             | properties, fields, attributes |
+| `colors.syntax-tag`              | `bright-blue`             | markup tags |
 | `colors.link`                    | `underline magenta`       | links: cross-references such as `ls(1)`, files, headings, URLs |
 | `colors.link-focus`              | `reverse magenta`         | the focused link |
 | `colors.text-selection`          | `on blue-50`              | text selected with the mouse |
@@ -263,6 +277,26 @@ Markdown is read as CommonMark with the GitHub extensions: tables, task lists, s
 
 Markdown documents have no pinned header and footer.
 
+## Syntax highlighting
+
+With `syntax-highlighting = true` (the default), code examples are colored by their syntax through tree-sitter:
+
+- Markdown code blocks labeled with a language: ` ```crystal `. The first word of the label names the grammar, or an alias of it (`cr` → `crystal`, `sh`/`shell` → `bash`, `js` → `javascript`, `py` → `python`, `yml` → `yaml`, …). Unlabeled and indented code blocks and code spans stay plain.
+- The `.EX` examples of manual pages whose section names a language: `Foo.3cr` and `name.7cr`, the pages `docv gen-cr` makes, are Crystal.
+
+A language takes two things, and docv ships neither: its grammar, a shared library `libtree-sitter-<name>.so` or `<name>.so`, and its highlight query, `<name>/highlights.scm`. They are looked for where tree-sitter and editors install them, for example grammars in `~/.local/lib` with queries in `~/.local/share/tree-sitter/queries/<name>/highlights.scm`:
+
+| Grammars (after `~/.local/lib`, `/usr/local/lib`, `/usr/local/lib64`, `/usr/lib`, `/usr/lib64`) | Queries |
+|---|---|
+| `$XDG_DATA_HOME/docv/grammars` | `$XDG_DATA_HOME/docv/queries`, `$XDG_DATA_HOME/tree-sitter/queries` |
+| `$XDG_DATA_HOME/nvim/site/parser` | `$XDG_DATA_HOME/nvim/site/queries` |
+| `$XDG_DATA_HOME/nvim/lazy/nvim-treesitter/parser` | `$XDG_DATA_HOME/nvim/lazy/nvim-treesitter/queries`, `/usr/share/nvim/runtime/queries` |
+| `$XDG_CONFIG_HOME/helix/runtime/grammars`, `/usr/lib64`, `/usr/lib` and `/usr/share` `helix/runtime/grammars` | the same `helix/runtime/queries` directories |
+
+(`XDG_DATA_HOME` defaults to `~/.local/share`, `XDG_CONFIG_HOME` to `~/.config`.) A grammar can be built from its repository with `tree-sitter build`, whose `queries/highlights.scm` is the query. A query's `; inherits: a,b` line puts those languages' queries first. A language without a grammar or query, or whose query the grammar rejects, stays plain.
+
+Capture names map to the `syntax-*` roles by their longest known dotted prefix (`keyword.function` is a keyword; nvim's and helix's names both work); `variable` and unknown names stay in the code's own color (`code-block` in documents, plain in manual pages). An inner capture overrides the one around it. Of two captures of the same node, the later pattern wins, as in nvim; for helix's query directories the earlier one does.
+
 ## Library
 
 ```crystal
@@ -277,6 +311,7 @@ doc = Docv.parse(source, path)                  # roff text; path resolves .so
 doc = Docv::Markdown.parse(text)                # Markdown text
 doc = Docv.load(path, Docv::Options.new(unsafe: true, stdin: STDIN))
 doc = Docv.load(path, Docv::Config.load.options) # options from config.ini
+doc = Docv.load("README.md", Docv::Options.new(highlight: true))  # with syntax highlighting
 
 doc.format     # Docv::Format::Man | Mdoc | Roff | Markdown
 doc.reference  # "LS(1)"; a document's first level 1 heading
@@ -311,9 +346,10 @@ fuzzy.positions("printf")                  # => [0, 1, 5]
 | `Document`               | metadata, blocks, link targets (`links`) and heading anchors (`anchors`) of a page or document |
 | `Block`                  | `kind` (`Text`, `Heading`, `Blank`, `Table`, `Rule`), heading `level` (1-6), `indent`, first-line `offset`, `tag`/`tag_indent`, `fill?`, `align`, `tabs`, `spans`, `lines`, `table`, quote `bars` (columns) |
 | `Span`                   | text, a style id (`Styles[id]` is a `Style`: `attr` (`Attr`: `Bold`, `Italic`, `Underline`, `Reverse`, `Dim`, `Strike`), `fg`, `bg`, `markup`; `merge(over)`) and a `link` (index into `Document#links` from 1, `0` for none) |
-| `Markup`                 | what text is for the viewer's roles: `None`, `Code`, `CodeBlock`, `Quote`, `Rule`, `Image` |
+| `Markup`                 | what text is for the viewer's roles: `None`, `Code`, `CodeBlock`, `Quote`, `Rule`, `Image`, and `SyntaxKeyword` … `SyntaxTag` for highlighted code |
 | `Target`                 | where a link leads: `kind` (`TargetKind`: `Page`, `Url`, `File`, `Anchor`), `location` (page name, URL, path), `part` (section, anchor), `label` |
-| `Markdown`               | `Markdown.parse(text)`, `Markdown.file?(path)` (`EXTENSIONS`), `Markdown.slug(heading)`, `Markdown.description(text)` |
+| `Syntax`                 | `Syntax.highlight(code, language)` (lines of `{text, Markup}` runs, `nil` without grammar or query), `apply(blocks, language)`, `language(label)` (`ALIASES`), `page_language(path)` (`SECTION_LANGUAGES`), `markup(capture)` (`CAPTURES`), `grammar_directories`, `query_directories` (`Syntax::QueryDirectory`: `path`, `first_wins`), `clear` |
+| `Markdown`               | `Markdown.parse(text, highlight = false)`, `Markdown.file?(path)` (`EXTENSIONS`), `Markdown.slug(heading)`, `Markdown.description(text)` |
 | `Color`                  | `Color::DEFAULT`, `Color.palette(index)` (0-255), `Color.rgb(r, g, b)`; `default?`, `palette?`, `rgb?` |
 | `Palette`                | the terminal theme as RGB: `foreground`, `background`, `set(key, value)` (OSC 21 values), `reported?`, `dark?`, `rgb(color, foreground)`, `ramp(rgb, percent)`, `reduce(color, depth)`; `Palette.parse(value)` |
 | `Theme`                  | role styles: `Theme.new(overrides)`, `Theme.parse(spec)`, `styles(palette, depth)` (a style id per `Theme::Role`), `Theme::DEFAULT`, `Theme::MONOCHROME`, `Theme::KEYS`; `Theme::Error` |
@@ -325,8 +361,8 @@ fuzzy.positions("printf")                  # => [0, 1, 5]
 | `Index::Entry`           | `name` (a document's path from the project root), `section` (empty for a document), `path`, `description`, `reference`, `project?`, `document?` |
 | `Fuzzy`                  | `Fuzzy.new(query)`, `score(text)`, `positions(text)` (character indices), `exact?` (query has upper case) |
 | `Source`                 | `Source.read(path)`: gzip inflating and Latin-1 fallback; `.so` resolution    |
-| `Options`                | `unsafe` (run `Roff::Engine::UNSAFE` requests and `\V`), `stdin` (input of `.rd`; `nil` reads nothing) |
-| `Config`                 | `Config.load(path = Config.path, create = true)`, `Config.parse(text)`, `unsafe?`, `colors`, `theme`, `options(stdin)`; `Config::Error` |
+| `Options`                | `unsafe` (run `Roff::Engine::UNSAFE` requests and `\V`), `stdin` (input of `.rd`; `nil` reads nothing), `highlight` (syntax highlighting, default `false`; `Config#options` sets it from `syntax-highlighting`) |
+| `Config`                 | `Config.load(path = Config.path, create = true)`, `Config.parse(text)`, `unsafe?`, `start_wrapped?`, `syntax_highlighting?`, `colors`, `theme`, `options(stdin)`; `Config::Error` |
 
 The man page generator is a separate require too:
 
