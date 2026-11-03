@@ -1,7 +1,7 @@
 # src/docv/viewer/field.cr
 module Docv
   class Viewer
-    # The text of the search bar: typing appends, `delete_back` removes the
+    # The text of the search field: typing appends, `delete_back` removes the
     # last grapheme.
     class Field
       getter text : String = ""

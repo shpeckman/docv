@@ -24,14 +24,15 @@ module Docv
       Back
       OpenPage
       Find
+      ToggleDock
       Help
       Escape
       Redraw
       Quit
     end
 
-    # Everything a key can do while the search bar has the keyboard. Text
-    # keys insert.
+    # Everything a key can do while the dock's search field has the
+    # keyboard. Text keys insert.
     enum FieldAction
       Accept
       Cancel
@@ -41,6 +42,29 @@ module Docv
       Previous
       PageNext
       PagePrevious
+      Expand
+      Collapse
+      ScrollLeft
+      ScrollRight
+      Switch
+    end
+
+    # Everything a key can do while the dock's tree has the keyboard. Other
+    # keys go to the page view.
+    enum TreeAction
+      Next
+      Previous
+      PageNext
+      PagePrevious
+      First
+      Last
+      Open
+      Expand
+      Collapse
+      ScrollLeft
+      ScrollRight
+      Field
+      Leave
     end
 
     # Page view bindings: modifiers, key number (codepoint or `Term::Key`),
@@ -86,6 +110,7 @@ module Docv
       {Term::Mods::None, 't'.ord, Action::Find},
       {Term::Mods::None, '/'.ord, Action::OpenPage},
       {Term::Mods::None, 'o'.ord, Action::OpenPage},
+      {Term::Mods::None, 'p'.ord, Action::ToggleDock},
       {Term::Mods::None, 'h'.ord, Action::Help},
       {Term::Mods::None, Term::Key::ESCAPE, Action::Escape},
       {Term::Mods::Ctrl, 'l'.ord, Action::Redraw},
@@ -115,27 +140,76 @@ module Docv
       Action::PrevLink   => "previous link",
       Action::FollowLink => "follow the focused link",
       Action::Back       => "back to the previous page",
-      Action::OpenPage   => "search pages and project documents",
-      Action::Find       => "find in the page",
+      Action::OpenPage   => "search pages and project documents (in the dock)",
+      Action::Find       => "find in the page (in the dock)",
+      Action::ToggleDock => "open or close the dock: search field and tree of pages",
       Action::Help       => "this help",
       Action::Escape     => "clear focus, selection and message",
       Action::Redraw     => "redraw",
       Action::Quit       => "quit",
     }
 
-    # What each search bar action does, for the help.
+    # What each search field action does, for the help.
     FIELD_HELP = {
-      FieldAction::Accept       => "stay at the match / open the page",
-      FieldAction::Cancel       => "leave the search bar",
+      FieldAction::Accept       => "back to the page at the match / open the page / fold or unfold the group",
+      FieldAction::Cancel       => "to the tree",
       FieldAction::DeleteBack   => "delete a character",
-      FieldAction::Clear        => "clear the search bar",
+      FieldAction::Clear        => "clear the field",
       FieldAction::Next         => "next match or page",
       FieldAction::Previous     => "previous match or page",
       FieldAction::PageNext     => "a screenful of matches or pages down",
       FieldAction::PagePrevious => "a screenful of matches or pages up",
+      FieldAction::Expand       => "unfold the page group, or step into it",
+      FieldAction::Collapse     => "fold the page group, or step out to it",
+      FieldAction::ScrollLeft   => "scroll the tree left",
+      FieldAction::ScrollRight  => "scroll the tree right",
+      FieldAction::Switch       => "to the tree",
     }
 
-    # Search bar bindings, in the same form as `DEFAULT_BINDINGS`.
+    # Dock tree bindings, in the same form as `DEFAULT_BINDINGS`.
+    TREE_BINDINGS = [
+      {Term::Mods::None, 'j'.ord, TreeAction::Next},
+      {Term::Mods::None, Term::Key::DOWN, TreeAction::Next},
+      {Term::Mods::Ctrl, 'n'.ord, TreeAction::Next},
+      {Term::Mods::None, 'k'.ord, TreeAction::Previous},
+      {Term::Mods::None, Term::Key::UP, TreeAction::Previous},
+      {Term::Mods::Ctrl, 'p'.ord, TreeAction::Previous},
+      {Term::Mods::None, Term::Key::PAGE_DOWN, TreeAction::PageNext},
+      {Term::Mods::None, Term::Key::PAGE_UP, TreeAction::PagePrevious},
+      {Term::Mods::None, 'g'.ord, TreeAction::First},
+      {Term::Mods::None, Term::Key::HOME, TreeAction::First},
+      {Term::Mods::None, 'G'.ord, TreeAction::Last},
+      {Term::Mods::None, Term::Key::END, TreeAction::Last},
+      {Term::Mods::None, Term::Key::ENTER, TreeAction::Open},
+      {Term::Mods::None, 'l'.ord, TreeAction::Expand},
+      {Term::Mods::None, Term::Key::RIGHT, TreeAction::Expand},
+      {Term::Mods::None, Term::Key::LEFT, TreeAction::Collapse},
+      {Term::Mods::None, 'H'.ord, TreeAction::ScrollLeft},
+      {Term::Mods::Shift, Term::Key::LEFT, TreeAction::ScrollLeft},
+      {Term::Mods::None, 'L'.ord, TreeAction::ScrollRight},
+      {Term::Mods::Shift, Term::Key::RIGHT, TreeAction::ScrollRight},
+      {Term::Mods::None, Term::Key::TAB, TreeAction::Field},
+      {Term::Mods::None, Term::Key::ESCAPE, TreeAction::Leave},
+    ]
+
+    # What each tree action does, for the help.
+    TREE_HELP = {
+      TreeAction::Next         => "next page or group",
+      TreeAction::Previous     => "previous page or group",
+      TreeAction::PageNext     => "a screenful down",
+      TreeAction::PagePrevious => "a screenful up",
+      TreeAction::First        => "first row",
+      TreeAction::Last         => "last row",
+      TreeAction::Open         => "open the page / fold or unfold the group",
+      TreeAction::Expand       => "unfold the group, or step into it",
+      TreeAction::Collapse     => "fold the group, or step out to it",
+      TreeAction::ScrollLeft   => "scroll the tree left",
+      TreeAction::ScrollRight  => "scroll the tree right",
+      TreeAction::Field        => "to the search field",
+      TreeAction::Leave        => "back to the page",
+    }
+
+    # Search field bindings, in the same form as `DEFAULT_BINDINGS`.
     FIELD_BINDINGS = [
       {Term::Mods::None, Term::Key::ENTER, FieldAction::Accept},
       {Term::Mods::None, Term::Key::ESCAPE, FieldAction::Cancel},
@@ -145,12 +219,16 @@ module Docv
       {Term::Mods::Ctrl, 'u'.ord, FieldAction::Clear},
       {Term::Mods::None, Term::Key::DOWN, FieldAction::Next},
       {Term::Mods::Ctrl, 'n'.ord, FieldAction::Next},
-      {Term::Mods::None, Term::Key::TAB, FieldAction::Next},
       {Term::Mods::None, Term::Key::UP, FieldAction::Previous},
       {Term::Mods::Ctrl, 'p'.ord, FieldAction::Previous},
       {Term::Mods::Shift, Term::Key::TAB, FieldAction::Previous},
       {Term::Mods::None, Term::Key::PAGE_DOWN, FieldAction::PageNext},
       {Term::Mods::None, Term::Key::PAGE_UP, FieldAction::PagePrevious},
+      {Term::Mods::None, Term::Key::RIGHT, FieldAction::Expand},
+      {Term::Mods::None, Term::Key::LEFT, FieldAction::Collapse},
+      {Term::Mods::Shift, Term::Key::LEFT, FieldAction::ScrollLeft},
+      {Term::Mods::Shift, Term::Key::RIGHT, FieldAction::ScrollRight},
+      {Term::Mods::None, Term::Key::TAB, FieldAction::Switch},
     ]
 
     # Maps key events to values of *T*: first by physical key (base layout),
@@ -198,7 +276,14 @@ module Docv
       end
     end
 
-    # Search bar key bindings (`FIELD_BINDINGS` unless given).
+    # Dock tree key bindings (`TREE_BINDINGS` unless given).
+    class TreeBindings < Keymap(TreeAction)
+      def initialize(entries = TREE_BINDINGS)
+        super(entries)
+      end
+    end
+
+    # Search field key bindings (`FIELD_BINDINGS` unless given).
     class FieldBindings < Keymap(FieldAction)
       def initialize(entries = FIELD_BINDINGS)
         super(entries)

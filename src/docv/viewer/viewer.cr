@@ -1,26 +1,32 @@
 # src/docv/viewer/viewer.cr
 module Docv
   # A full-screen terminal viewer for a `Document`: a manual page or a
-  # Markdown document. The title row holds an always-visible search bar and
-  # a close mark; below it a framed page whose right and bottom borders are
-  # draggable scrollbars, and a status row. The page header of a manual page
-  # stays pinned at the top of the frame and the page footer at the bottom.
-  # The page lays out wrapped or unwrapped and has links with back
-  # navigation (cross-references, files, heading anchors; URLs go to the
-  # terminal as OSC 8 hyperlinks) and mouse text selection copied to the
-  # clipboard.
+  # Markdown document. The title row holds the title (a click opens the
+  # help), the page's heading centered (the manual and the page reference,
+  # or the file name and first heading of a document; the page footer's
+  # source and date beside it under the pointer) and a close mark; below it
+  # a framed page whose right and bottom borders are draggable scrollbars,
+  # and a status row. The page lays out wrapped or unwrapped and has links with back navigation
+  # (cross-references, files, heading anchors; URLs go to the terminal as
+  # OSC 8 hyperlinks) and mouse text selection copied to the clipboard.
   #
-  # The search bar fuzzy-finds in the lines of the displayed page,
-  # highlighting the matches in place and scrolling to the best one; text
-  # that starts with `/` lists the pages of the manual and the documents of
-  # the project instead (`Index`), the project's first.
+  # A dock (`Dock`) left of the page holds the search field and the tree of
+  # the current page's group, or of the project's pages and documents
+  # (`Index`), names sharing a prefix folded into nested groups
+  # (`Picker::Outline`), the current page selected. Text in the field
+  # fuzzy-finds in the lines of the displayed page, highlighting the matches
+  # in place and scrolling to the best one, while the tree shows how many
+  # lines of its pages match (`Corpus`); text that starts with `/` ranks
+  # every page of the manual instead. The mouse pointer takes the shape of
+  # what it is over (OSC 22).
   #
   # ```
   # Docv::Viewer.new(Docv.open("ls", "1").not_nil!).run
   # ```
   #
-  # Without a document the viewer starts on an empty page; performing
-  # `Action::OpenPage` before `run` starts in the page search:
+  # Without a document the viewer starts on an empty page, the dock closed;
+  # performing `Action::OpenPage` before `run` starts in a search of every
+  # page:
   #
   # ```
   # viewer = Docv::Viewer.new
@@ -35,19 +41,14 @@ module Docv
     ESCAPE_TIMEOUT = 50.milliseconds
     # Index entries described between two yields to the input loop.
     INDEX_BATCH = 16
-    # Shortest interval between page search refreshes while the index is
-    # being described.
+    # Shortest interval between refreshes while the index is described or
+    # the text of the pages is read.
     INDEX_REFRESH = 250.milliseconds
 
     # Between the parts of the status row.
     STATUS_SEPARATOR = " │ "
-    # Rows a pinned page header or footer takes: the line and a rule.
-    PINNED_ROWS = 2
-
-    # Typed first in the search bar, searches the manual instead of the page.
-    MANUAL_PREFIX = '/'
-    # Shown in the search bar while it is empty and not focused.
-    PLACEHOLDER = "find in page, / for pages"
+    # Between the parts of the page's heading in the title row.
+    HEADING_SEPARATOR = " - "
 
     # Page text attributes and the roles that restyle them, most specific
     # first; the roles replace `TEXT_ATTRS`. Text a page colors itself keeps
@@ -92,6 +93,28 @@ module Docv
     # Groups of the page search: the project's pages and documents first.
     PROJECT_GROUP = 0
     OTHER_GROUP   = 1
+    # Key of the dock's tree while it shows the project's pages; a page in
+    # no group has a key below it.
+    PROJECT_KEY = -1
+
+    # Shown on the empty start page.
+    START_HINT = "p: this folder's pages │ /: search every page │ h: help"
+
+    # What lies under the mouse pointer, for its shape.
+    enum Hover
+      Plain
+      Text
+      Link
+      Resize
+      Thumb
+      Grabbed
+    end
+
+    # The CSS cursor names of the pointer shapes (OSC 22).
+    POINTER_SHAPES = {
+      Hover::Plain => "default", Hover::Text => "text", Hover::Link => "pointer",
+      Hover::Resize => "ew-resize", Hover::Thumb => "grab", Hover::Grabbed => "grabbing",
+    }
 
     # A loaded page.
     record Page, document : Document, path : String?
@@ -105,31 +128,25 @@ module Docv
       Content
       VerticalThumb
       HorizontalThumb
+      Divider
     end
 
     # What has the keyboard.
-    enum Mode
+    enum Focus
       # The page, through `Bindings`.
-      View
-      # The search bar, through `FieldBindings`.
-      Search
-    end
-
-    # What the search bar searches.
-    enum Scope
-      # The lines of the displayed page; the page stays in the frame with the
-      # matches highlighted.
       Page
-      # The pages of the manual (text after `MANUAL_PREFIX`), listed in the
-      # frame.
-      Manual
+      # The dock's tree, through `TreeBindings`, then `Bindings`.
+      Tree
+      # The dock's search field, through `FieldBindings`.
+      Field
     end
 
     getter page : Page
     getter? wrap : Bool
-    getter mode : Mode = Mode::View
+    getter focus : Focus = Focus::Page
     property bindings : Bindings = Bindings.new
     property field_bindings : FieldBindings = FieldBindings.new
+    property tree_bindings : TreeBindings = TreeBindings.new
 
     @tty : Term::Tty
     @input = Term::Input.new
@@ -139,23 +156,36 @@ module Docv
     @options : Options
     @events = Channel(Bytes | Symbol).new(64)
     @layouts = Hash({Int32, Bool}, Array(Layout::Line)).new
-    @header : Layout::Line? = nil
-    @footer : Layout::Line? = nil
     @lines = [] of Layout::Line
     @max_width = 0
     @links = [] of {Int32, Layout::Link}
-    @focus : Int32? = nil
+    @link : Int32? = nil
     @top = 0
     @left = 0
     @history = [] of Position
-    @field = Field.new
-    @scope : Scope? = nil
-    @picker : Picker? = nil
+    @dock : Dock
+    # Finding in the page: one item per line of the layout.
+    @finder : Picker? = nil
     @help : Help? = nil
     @found = Set(Int32).new
-    @origin = {0, 0}
     @index : Index? = nil
     @index_progress : {Int32, Int32}? = nil
+    @corpus : Corpus? = nil
+    @search_threads : Int32
+    @text_progress : {Int32, Int32}? = nil
+    # Bumped by every search across pages; a search whose number is no
+    # longer current stops and is dropped.
+    @hit_generation = Atomic(Int32).new(0)
+    # The latest hit counts, per index entry.
+    @hit_counts : Array(Int32)? = nil
+    # Key of the pages in the group's tree (`group_of`).
+    @group_key : Int32? = nil
+    # The outline of every page, to find the group of a page.
+    @outline : Picker::Outline? = nil
+    # True while the field held a manual search.
+    @manual_view = false
+    # The pointer shape last set.
+    @hover = Hover::Plain
     @message : String? = nil
     @selection : {Int32, Int32, Int32, Int32}? = nil
     @pointer : {Int32, Int32}? = nil
@@ -177,16 +207,21 @@ module Docv
     # since the terminal belongs to the viewer.
     # *theme* styles the viewer (`Config#theme`); its colors follow the
     # terminal theme once the terminal answers the OSC 21 query, and are
-    # off with `NO_COLOR` (*depth*).
+    # off with `NO_COLOR` (*depth*). *settings* places the dock and sets
+    # the threads that search the text of all pages (`Config#viewer`).
     def initialize(document : Document = Document.new, path : String? = nil, @wrap : Bool = true,
                    @manpath : Manpath = Manpath.default, @tty : Term::Tty = Term::Tty.new,
                    options : Options = Options.new, @theme : Theme = Theme.new,
-                   @depth : ColorDepth = Term::Tty.color_depth)
+                   @depth : ColorDepth = Term::Tty.color_depth, settings : ViewerSettings = ViewerSettings.new)
       @options = options.copy_with(stdin: nil)
       @page = Page.new(document, path)
       @screen = Screen.new(@frame.rows, @frame.cols)
       @palette = Palette.new(@dark)
+      @dock = Dock.new(settings.dock_width, settings.dock, false)
+      @search_threads = settings.search_threads
+      @message = START_HINT if blank_page?
       apply_colors
+      open_dock if settings.dock_open
     end
 
     # Runs the viewer until the user quits. Restores the terminal on exit and
@@ -219,6 +254,8 @@ module Docv
             resize
           when :index
             index_updated
+          when :corpus
+            search_hits
           when :eof
             @running = false
           end
@@ -254,24 +291,14 @@ module Docv
       @frame.content_cols
     end
 
-    # Rows above the page body: the pinned header and its rule.
-    private def header_rows : Int32
-      @header ? PINNED_ROWS : 0
-    end
-
-    # Rows below the page body: a rule and the pinned footer.
-    private def footer_rows : Int32
-      @footer ? PINNED_ROWS : 0
-    end
-
     # Rows of the page body.
     private def page_rows : Int32
-      Math.max(content_rows - header_rows - footer_rows, 1)
+      content_rows
     end
 
     # Screen row of the first body row.
     private def page_top : Int32
-      Frame::TOP + header_rows
+      Frame::TOP
     end
 
     private def max_top : Int32
@@ -291,11 +318,17 @@ module Docv
       rows, cols, width, height = @tty.size
       @input.window(rows, cols, width, height)
       return if rows == @frame.rows && cols == @frame.cols && !@lines.empty?
-      anchor = anchor_of(@top)
-      @frame = Frame.new(rows, cols)
       @screen.resize(rows, cols)
+      refit(rows, cols)
+    end
+
+    # Lays the frame out for *rows* × *cols* with the dock as it is, and the
+    # page for the content width.
+    private def refit(rows : Int32 = @frame.rows, cols : Int32 = @frame.cols) : Nil
+      anchor = anchor_of(@top)
+      @frame = Frame.new(rows, cols, @dock.offset(cols))
       relayout(anchor)
-      list.try &.move(0, content_rows)
+      @dock.tree.try &.move(0, @dock.tree_rows(@frame))
     end
 
     # --- layout ------------------------------------------------------------
@@ -310,20 +343,17 @@ module Docv
     end
 
     # The page body for the content width, without the header and footer,
-    # which are pinned instead.
+    # whose text the title row shows instead.
     private def layout(wrap : Bool) : Array(Layout::Line)
       @layouts[{content_cols, wrap}] ||= Layout.new(@page.document).lines(content_cols, wrap, header: false, footer: false)
     end
 
     private def relayout(anchor : {Int32, Int32}) : Nil
-      layout = Layout.new(@page.document)
-      @header = layout.header_line(content_cols)
-      @footer = layout.footer_line(content_cols)
       @lines = layout(@wrap)
       @max_width = @lines.max_of?(&.width) || 0
       @links = [] of {Int32, Layout::Link}
       @lines.each_with_index { |line, index| line.links.each { |link| @links << {index, link} } }
-      @focus = nil
+      @link = nil
       @selection = nil
       @top = locate(anchor)
       clamp
@@ -347,16 +377,18 @@ module Docv
     private def handle(event : Term::Derived) : Nil
       case event
       when Term::TextInput
-        if @help
-          help_key(event.key)
-        else
-          @mode.view? ? key(event.key) : field_text(event.text)
+        return help_key(event.key) if @help
+        case @focus
+        in .field? then field_text(event.text)
+        in .tree?  then tree_key(event.key) || key(event.key)
+        in .page?  then key(event.key)
         end
       when Term::KeyCommand
-        if @help
-          help_key(event.key)
-        else
-          @mode.view? ? key(event.key) : field_key(event.key)
+        return help_key(event.key) if @help
+        case @focus
+        in .field? then field_key(event.key)
+        in .tree?  then tree_key(event.key) || key(event.key)
+        in .page?  then key(event.key)
         end
       when Term::MousePress  then press(event)
       when Term::Drag        then drag(event)
@@ -412,11 +444,12 @@ module Docv
       in .prev_link?   then focus_link(false)
       in .follow_link? then follow_focus
       in .back?        then back
-      in .open_page?   then focus_bar(MANUAL_PREFIX.to_s)
-      in .find?        then focus_bar("")
-      in .help?        then @help = Help.new(@bindings, @field_bindings)
+      in .open_page?   then focus_field(Dock::MANUAL_PREFIX.to_s)
+      in .find?        then focus_field("")
+      in .toggle_dock? then toggle_dock
+      in .help?        then @help = Help.new(@bindings, @field_bindings, @tree_bindings)
       in .escape?
-        @focus = nil
+        @link = nil
         @message = nil
         @selection = nil
       in .redraw?
@@ -427,10 +460,12 @@ module Docv
       clamp
     end
 
-    # Scrolls the help with the scrolling keys; any other key closes it.
+    # Scrolls the help with the scrolling keys, both ways; any other key
+    # closes it.
     private def help_key(event : Term::KeyEvent) : Nil
       help = @help || return
       rows = help.rows(@frame)
+      half = Math.max(content_cols // 2, 1)
       case @bindings.lookup(event)
       when .nil?                    then @help = nil
       when .line_down?              then help.scroll(1, @frame)
@@ -439,6 +474,12 @@ module Docv
       when .page_up?, .half_up?     then help.scroll(-rows, @frame)
       when .top?                    then help.scroll(-help.lines.size, @frame)
       when .bottom?                 then help.scroll(help.lines.size, @frame)
+      when .left?                   then help.scroll_x(-HORIZONTAL_STEP, @frame)
+      when .right?                  then help.scroll_x(HORIZONTAL_STEP, @frame)
+      when .half_left?              then help.scroll_x(-half, @frame)
+      when .half_right?             then help.scroll_x(half, @frame)
+      when .line_start?             then help.scroll_x(-help.width, @frame)
+      when .line_end?               then help.scroll_x(help.width, @frame)
       else                               @help = nil
       end
     end
@@ -450,100 +491,267 @@ module Docv
       relayout(anchor)
     end
 
-    # --- search bar ----------------------------------------------------------
+    # --- dock ----------------------------------------------------------------
 
-    # Gives the search bar the keyboard with *text* typed in.
-    private def focus_bar(text : String) : Nil
-      @mode = Mode::Search
-      @field.clear
-      @field.insert(text)
+    private def toggle_dock : Nil
+      if @dock.open?
+        close_dock
+      else
+        open_dock
+        @focus = Focus::Tree
+      end
+    end
+
+    # Opens the dock with the tree on the current page.
+    private def open_dock : Nil
+      return if @dock.open?
+      @dock.open = true
+      refit
+      reveal_current
+    end
+
+    private def close_dock : Nil
+      @dock.open = false
+      @focus = Focus::Page
+      refit
+    end
+
+    # The tree the dock shows: every page during a manual search, otherwise
+    # the current page's group.
+    private def tree : Picker
+      @dock.manual? ? all_pages : group_tree
+    end
+
+    # The tree of every page, built on first use.
+    private def all_pages : Picker
+      @dock.pages ||= Picker.new(page_items(load_index), nested: true)
+    end
+
+    # The tree of the current page's group (`group_of`), built again when
+    # the page is in another one, with as many groups unfolded as fit.
+    private def group_tree : Picker
+      index = load_index
+      current = entry_number(index)
+      key, members = group_of(index, current)
+      picker = @dock.group
+      if picker.nil? || key != @group_key
+        picker = Picker.new(members.map { |number| page_item(index.entries[number], number) }, nested: true)
+        rows = @dock.tree_rows(@frame)
+        picker.reveal(current, rows) if current
+        picker.unfold(rows)
+        @dock.group = picker
+        @group_key = key
+        apply_hits
+      end
+      picker
+    end
+
+    # The pages the tree shows around page *number*, with a key that names
+    # them: the project's pages and documents for one of them, or without a
+    # page (`PROJECT_KEY`); the outermost group of a page in one (its node
+    # id); the page alone otherwise.
+    private def group_of(index : Index, number : Int32?) : {Int32, Array(Int32)}
+      entries = index.entries
+      if number.nil? || entries[number].project?
+        return {PROJECT_KEY, (0...entries.size).select { |entry| entries[entry].project? }}
+      end
+      outline = @outline ||= Picker::Outline.new(page_items(index))
+      root = -1
+      parent = outline.nodes[outline.leaf(number)].parent
+      while parent >= 0
+        root = parent
+        parent = outline.nodes[parent].parent
+      end
+      root < 0 ? {PROJECT_KEY - 1 - number, [number]} : {root, outline.items(root)}
+    end
+
+    # Selects the current page in the group's tree.
+    private def reveal_current : Nil
+      tree = group_tree
+      number = entry_number(load_index) || return
+      tree.reveal(number, @dock.tree_rows(@frame))
+    end
+
+    # Gives the search field the keyboard with *text* typed in.
+    private def focus_field(text : String) : Nil
+      open_dock
+      @focus = Focus::Field
+      @dock.field.clear
+      @dock.field.insert(text)
       @message = nil
       @selection = nil
-      @scope = nil
-      @origin = {@top, @left}
       field_changed
-    end
-
-    # Gives the keyboard back to the page and empties the search bar.
-    private def close_bar : Nil
-      @mode = Mode::View
-      @picker = nil
-      @scope = nil
-      @found.clear
-      @field.clear
-    end
-
-    # The results the frame lists instead of the page: the page search's.
-    private def list : Picker?
-      @scope.try(&.manual?) ? @picker : nil
     end
 
     private def field_text(text : String) : Nil
-      @field.insert(text)
+      @dock.field.insert(text)
       field_changed
     end
 
-    # Filters the results by the search bar text, first building the items
-    # of the scope the text selects when that changed. Finding in the page
-    # then scrolls to the best match.
+    # Applies the field: a manual search ranks the tree; other text finds
+    # in the page (scrolling to the best match) and counts the matching
+    # lines of every page for the tree.
     private def field_changed : Nil
-      text = @field.text
-      scope = text.starts_with?(MANUAL_PREFIX) ? Scope::Manual : Scope::Page
-      picker = @picker
-      if picker.nil? || scope != @scope
-        picker = scope.manual? ? Picker.new(page_items(load_index)) : Picker.new(line_items, search_details: false)
-        @picker = picker
-        @scope = scope
+      if @dock.manual?
+        @finder = nil
+        @found.clear
+        all_pages.query = @dock.query
+        @manual_view = true
+        clear_hits
+        return
       end
-      picker.query = scope.manual? ? text[1..] : text
-      mark_matches if scope.page?
+      if @manual_view
+        @manual_view = false
+        reveal_current
+      end
+      find(@dock.field.text)
+      search_hits
     end
 
     private def field_key(event : Term::KeyEvent) : Nil
       action = @field_bindings.lookup(event) || return
-      rows = content_rows
+      rows = @dock.tree_rows(@frame)
       page = Math.max(rows - 1, 1)
       case action
       in .accept?      then accept
-      in .cancel?      then cancel
-      in .delete_back? then field_changed if @field.delete_back
+      in .cancel?      then @focus = Focus::Tree
+      in .delete_back? then field_changed if @dock.field.delete_back
       in .clear?
-        @field.clear
+        @dock.field.clear
         field_changed
-      in .next?          then step(1, rows)
-      in .previous?      then step(-1, rows)
-      in .page_next?     then step(page, rows)
-      in .page_previous? then step(-page, rows)
+      in .next?          then step(1)
+      in .previous?      then step(-1)
+      in .page_next?     then step(page)
+      in .page_previous? then step(-page)
+      in .expand?        then tree.expand(rows)
+      in .collapse?      then tree.collapse(rows)
+      in .scroll_left?   then tree.scroll_x(-HORIZONTAL_STEP, @dock.tree_cols(@frame), @dock.manual?)
+      in .scroll_right?  then tree.scroll_x(HORIZONTAL_STEP, @dock.tree_cols(@frame), @dock.manual?)
+      in .switch?        then @focus = Focus::Tree
       end
     end
 
-    # Moves the selection by *delta*: through the listed pages, or through
-    # the matches in the page (scrolling to the new one).
-    private def step(delta : Int32, rows : Int32) : Nil
-      picker = @picker || return
-      return picker.move(delta, rows) if @scope.try(&.manual?)
+    # Moves by *delta* through the tree, or through the matches in the page
+    # while finding in it (scrolling to the new one).
+    private def step(delta : Int32) : Nil
+      finder = @finder
+      if finder.nil? || @dock.manual? || @dock.field.empty?
+        tree.move(delta, @dock.tree_rows(@frame))
+        return
+      end
       return if @found.empty?
-      picker.move(delta, rows)
+      finder.move(delta, page_rows)
       reveal_match
     end
 
-    # Opens the selected page, or stays at the match in the page.
+    # Opens the selected page of a manual search (or folds and unfolds the
+    # selected group); finding in the page gives the page the keyboard at
+    # the match.
     private def accept : Nil
-      if @scope.try(&.manual?)
-        item = @picker.try(&.current) || return
-        close_bar
-        open_entry(item.target)
+      if @dock.manual?
+        tree_open(tree)
       else
-        close_bar
+        @focus = Focus::Page
       end
     end
 
-    # Leaves the search bar; finding in the page goes back to where it
-    # started.
-    private def cancel : Nil
-      @top, @left = @origin if @scope.try(&.page?)
-      close_bar
-      clamp
+    # Runs the tree binding of *event*; false when there is none, so the
+    # page view takes the key.
+    private def tree_key(event : Term::KeyEvent) : Bool
+      action = @tree_bindings.lookup(event) || return false
+      tree = self.tree
+      rows = @dock.tree_rows(@frame)
+      page = Math.max(rows - 1, 1)
+      case action
+      in .next?          then tree.move(1, rows)
+      in .previous?      then tree.move(-1, rows)
+      in .page_next?     then tree.move(page, rows)
+      in .page_previous? then tree.move(-page, rows)
+      in .first?         then tree.move(-tree.rows.size, rows)
+      in .last?          then tree.move(tree.rows.size, rows)
+      in .open?          then tree_open(tree)
+      in .expand?        then tree.expand(rows)
+      in .collapse?      then tree.collapse(rows)
+      in .scroll_left?   then tree.scroll_x(-HORIZONTAL_STEP, @dock.tree_cols(@frame), @dock.manual?)
+      in .scroll_right?  then tree.scroll_x(HORIZONTAL_STEP, @dock.tree_cols(@frame), @dock.manual?)
+      in .field?         then @focus = Focus::Field
+      in .leave?         then @focus = Focus::Page
+      end
+      @message = nil
+      true
+    end
+
+    # Opens the selected page of *tree* unless it is the current one, or
+    # folds or unfolds the selected group. A page picked in a manual search
+    # ends the search: the field is emptied, the tree goes back to the
+    # page's group, and the page gets the keyboard.
+    private def tree_open(tree : Picker) : Nil
+      return tree.toggle(@dock.tree_rows(@frame)) if tree.group?
+      item = tree.current || return
+      if @dock.manual?
+        @dock.field.clear
+        @focus = Focus::Page
+        open_entry(item.target)
+        field_changed
+        return
+      end
+      return if @index.try(&.entries[item.target]?).try(&.path) == @page.path
+      open_entry(item.target)
+    end
+
+    # The visible tree row under the pointer, if any.
+    private def tree_hover : Int32?
+      row, col = @pointer || return nil
+      return nil unless @dock.part(@frame, row, col).try(&.tree?)
+      @dock.tree_row(@frame, row)
+    end
+
+    # --- finding in the page -------------------------------------------------
+
+    # One item per line of the displayed layout; item index is line index.
+    private def line_items : Array(Picker::Item)
+      @lines.map_with_index { |line, index| Picker::Item.new(line.text, target: index) }
+    end
+
+    # Finds *text* in the lines of the page and scrolls to the best match.
+    private def find(text : String) : Nil
+      finder = @finder ||= Picker.new(line_items, search_details: false)
+      finder.query = text
+      @found = text.blank? ? Set(Int32).new : finder.results.to_set
+      reveal_match
+    end
+
+    # Matches the query again in a new layout of the page.
+    private def refind : Nil
+      return unless finder = @finder
+      query = finder.query
+      finder = Picker.new(line_items, search_details: false)
+      finder.query = query
+      @finder = finder
+      @found = query.blank? ? Set(Int32).new : finder.results.to_set
+    end
+
+    # The selected match: its line and the screen-independent columns of
+    # its matched characters.
+    private def current_match : {Int32, Array(Int32)}?
+      return nil if @found.empty?
+      finder = @finder || return nil
+      index = finder.results[finder.selected]? || return nil
+      {index, match_columns(index)}
+    end
+
+    # Columns of the characters of line *index* the query matched.
+    private def match_columns(index : Int32) : Array(Int32)
+      finder = @finder || return [] of Int32
+      _, columns = @lines[index].text_columns
+      finder.marks(index)[0].compact_map { |position| columns[position]? }
+    end
+
+    private def reveal_match : Nil
+      index, columns = current_match || return
+      first = columns.min? || 0
+      last = columns.max? || first
+      reveal(index, first, last - first + 1)
     end
 
     # Scrolls so that (*line*, *col*..*col + width*) is visible.
@@ -558,51 +766,64 @@ module Docv
       clamp
     end
 
-    # --- finding in the page -------------------------------------------------
+    # --- finding across pages ------------------------------------------------
 
-    # One item per line of the displayed layout; item index is line index.
-    private def line_items : Array(Picker::Item)
-      @lines.map_with_index { |line, index| Picker::Item.new(line.text, target: index) }
+    # Counts the lines of every page that the field's text matches and
+    # hands the counts to the tree; the text of the pages is read first
+    # (once, in the background) when it is not yet.
+    private def search_hits : Nil
+      generation = @hit_generation.add(1) + 1
+      query = @dock.field.text
+      return clear_hits if @dock.manual? || query.blank?
+      corpus = self.corpus
+      return unless corpus.ready?
+      spawn do
+        counts = corpus.count(query, -> { @hit_generation.get != generation })
+        if counts && @hit_generation.get == generation
+          @hit_counts = counts
+          apply_hits
+          @events.send(:hits)
+        end
+      end
     end
 
-    # Marks the lines matching the query and scrolls to the best match.
-    private def mark_matches : Nil
-      picker = @picker || return
-      @found = picker.query.blank? ? Set(Int32).new : picker.results.to_set
-      reveal_match
+    private def clear_hits : Nil
+      @hit_generation.add(1)
+      @hit_counts = nil
+      apply_hits
     end
 
-    # Matches the query again in a new layout of the page.
-    private def refind : Nil
-      return unless @scope.try(&.page?) && (picker = @picker)
-      query = picker.query
-      picker = Picker.new(line_items, search_details: false)
-      picker.query = query
-      @picker = picker
-      @found = query.blank? ? Set(Int32).new : picker.results.to_set
+    # Hands the hit counts (per index entry) to the group's tree.
+    private def apply_hits : Nil
+      tree = @dock.group || return
+      counts = @hit_counts
+      tree.hits = counts ? tree.items.map { |item| counts[item.target]? || 0 } : nil
     end
 
-    # The selected match: its line and the screen-independent columns of
-    # its matched characters.
-    private def current_match : {Int32, Array(Int32)}?
-      return nil if @found.empty?
-      picker = @picker || return nil
-      index = picker.results[picker.selected]? || return nil
-      {index, match_columns(index)}
+    # The text of every page, read in the background on first use.
+    private def corpus : Corpus
+      @corpus ||= begin
+        corpus = Corpus.new(threads: @search_threads)
+        sources = load_index.entries.map { |entry| Corpus::Source.new(entry.path, entry.mtime) }
+        spawn read_pages(corpus, sources)
+        corpus
+      end
     end
 
-    # Columns of the characters of line *index* the query matched.
-    private def match_columns(index : Int32) : Array(Int32)
-      picker = @picker || return [] of Int32
-      _, columns = @lines[index].text_columns
-      picker.marks(index)[0].compact_map { |position| columns[position]? }
-    end
-
-    private def reveal_match : Nil
-      index, columns = current_match || return
-      first = columns.min? || 0
-      last = columns.max? || first
-      reveal(index, first, last - first + 1)
+    # Builds *corpus*, refreshing the progress in the status row at most
+    # every `INDEX_REFRESH`, then searches the field's text.
+    private def read_pages(corpus : Corpus, sources : Array(Corpus::Source)) : Nil
+      last = Time.instant
+      corpus.build(sources) do |done, total|
+        @text_progress = {done, total}
+        now = Time.instant
+        if now - last >= INDEX_REFRESH
+          last = now
+          @events.send(:text)
+        end
+      end
+      @text_progress = nil
+      @events.send(:corpus)
     end
 
     # --- page search ---------------------------------------------------------
@@ -616,14 +837,16 @@ module Docv
     end
 
     private def page_items(index : Index) : Array(Picker::Item)
-      index.entries.map_with_index do |entry, number|
-        Picker::Item.new(entry.reference, entry.description, number, Theme::Role::Name,
-          entry.project? ? PROJECT_GROUP : OTHER_GROUP)
-      end
+      index.entries.map_with_index { |entry, number| page_item(entry, number) }
+    end
+
+    private def page_item(entry : Index::Entry, number : Int32) : Picker::Item
+      Picker::Item.new(entry.reference, entry.description, number, Theme::Role::Name,
+        entry.project? ? PROJECT_GROUP : OTHER_GROUP, entry.name)
     end
 
     # Describes the index in the background, yielding to the input loop
-    # every `INDEX_BATCH` pages and refreshing the page search at most every
+    # every `INDEX_BATCH` pages and refreshing the tree at most every
     # `INDEX_REFRESH`.
     private def describe(index : Index) : Nil
       last = Time.instant
@@ -640,11 +863,10 @@ module Docv
     end
 
     private def index_updated : Nil
-      return unless @scope.try(&.manual?)
-      if (picker = @picker) && (index = @index)
-        picker.items = page_items(index)
-        picker.move(0, content_rows)
-      end
+      tree = @dock.pages || return
+      index = @index || return
+      tree.items = page_items(index)
+      tree.move(0, @dock.tree_rows(@frame))
     end
 
     private def open_entry(target : Int32) : Nil
@@ -652,25 +874,36 @@ module Docv
       open_path(entry.path)
     end
 
+    # The index entry of the current page: by path, then by name and
+    # section.
+    private def entry_number(index : Index) : Int32?
+      path = File.expand_path(@page.path || return nil)
+      entries = index.entries
+      entries.index { |entry| entry.path == path } || begin
+        name, section = Manpath.split(File.basename(path)) || return nil
+        entries.index { |entry| entry.name == name && entry.section == section }
+      end
+    end
+
     # --- links and history ---------------------------------------------------
 
     private def focus_link(forward : Bool) : Nil
       return @message = "No links" if @links.empty?
-      index = if focus = @focus
-                (focus + (forward ? 1 : -1)) % @links.size
+      index = if link = @link
+                (link + (forward ? 1 : -1)) % @links.size
               elsif forward
                 @links.index { |line, _| line >= @top } || 0
               else
                 @links.rindex { |line, _| line < @top + page_rows } || @links.size - 1
               end
-      @focus = index
+      @link = index
       line, link = @links[index]
       reveal(line, link.col, link.width)
       @message = link.target.label
     end
 
     private def follow_focus : Nil
-      focus = @focus || return
+      focus = @link || return
       _, link = @links[focus]
       open_link(link)
     end
@@ -737,6 +970,7 @@ module Docv
       show(position.page, {position.block, position.offset}, position.left)
     end
 
+    # Shows *page*: finds the field's text in it and selects it in the tree.
     private def show(page : Page, anchor : {Int32, Int32}, left : Int32) : Nil
       @page = page
       @layouts.clear
@@ -744,6 +978,7 @@ module Docv
       relayout(anchor)
       @left = left
       clamp
+      reveal_current if @dock.open?
     end
 
     # --- text selection ------------------------------------------------------
@@ -753,7 +988,7 @@ module Docv
     private def page_point(row : Int32, col : Int32) : {Int32, Int32}?
       return nil if @lines.empty?
       last = Math.min(@top + page_rows, @lines.size) - 1
-      {(@top + row - page_top).clamp(@top, last), Math.max(@left + col - Frame::LEFT, 0)}
+      {(@top + row - page_top).clamp(@top, last), Math.max(@left + col - @frame.left, 0)}
     end
 
     # The selection in page order: first line and column, last line and
@@ -883,49 +1118,35 @@ module Docv
 
     # --- mouse ---------------------------------------------------------------
 
-    # Rows of what the frame shows: listed pages or page lines.
-    private def view_rows : Int32
-      (picker = list) ? picker.results.size : @lines.size
-    end
-
-    # Rows of the frame that scroll: all of them for a list, the body for a
-    # page.
-    private def view_visible : Int32
-      list ? content_rows : page_rows
-    end
-
-    private def view_top : Int32
-      (picker = list) ? picker.top : @top
-    end
-
-    private def view_max_top : Int32
-      Math.max(view_rows - view_visible, 0)
-    end
-
     private def scroll_to(top : Int32) : Nil
-      if picker = list
-        picker.scroll_to(top, content_rows)
-      else
-        @top = top
-        clamp
-      end
+      @top = top
+      clamp
     end
 
     private def vertical_thumb : {Int32, Int32}
-      Frame.thumb(content_rows, view_visible, view_rows, view_top, view_max_top)
+      if help = @help
+        return Frame.thumb(content_rows, help.rows(@frame), help.lines.size, help.top, help.max_top(@frame))
+      end
+      Frame.thumb(content_rows, page_rows, @lines.size, @top, max_top)
     end
 
     private def horizontal_thumb : {Int32, Int32}
-      return {0, @frame.inner_cols} if list
+      if help = @help
+        return Frame.thumb(@frame.inner_cols, content_cols, help.width, help.left, help.max_left(@frame))
+      end
       Frame.thumb(@frame.inner_cols, content_cols, @max_width, @left, max_left)
     end
 
     private def press(event : Term::MousePress) : Nil
       @press_target = DragTarget::None
       return if @help
+      if part = @dock.part(@frame, event.row, event.col)
+        @press_target = DragTarget::Divider if part.divider? && event.button.left?
+        return
+      end
       case event.button
       when .aux8?
-        back unless list
+        back
         return
       when .left?
       else
@@ -939,12 +1160,11 @@ module Docv
           @press_target = DragTarget::VerticalThumb
           @drag_grab = track - start
         else
-          page = Math.max(view_visible - 1, 1)
-          scroll_to(view_top + (track < start ? -page : page))
+          page = Math.max(page_rows - 1, 1)
+          scroll_to(@top + (track < start ? -page : page))
         end
       when .horizontal_bar?
-        return if list
-        track = event.col - Frame::INNER
+        track = event.col - @frame.inner
         start, size = horizontal_thumb
         if start <= track < start + size
           @press_target = DragTarget::HorizontalThumb
@@ -963,7 +1183,7 @@ module Docv
       case event.phase
       in .start?
         @drag = @press_target
-        if @drag.content? && list.nil?
+        if @drag.content?
           anchor = page_point(event.start_row, event.start_col)
           head = page_point(event.row, event.col)
           @selection = anchor && head ? {anchor[0], anchor[1], head[0], head[1]} : nil
@@ -973,7 +1193,8 @@ module Docv
         drag_move(event)
       in .end?
         drag_move(event)
-        copy_selection if @drag.content? && list.nil?
+        copy_selection if @drag.content?
+        refit if @drag.divider?
         @drag = DragTarget::None
       end
     end
@@ -981,19 +1202,22 @@ module Docv
     private def drag_move(event : Term::Drag) : Nil
       case @drag
       in .content?
-        return if list
         selection = @selection || return
         head = page_point(event.row, event.col) || return
         @selection = {selection[0], selection[1], head[0], head[1]}
       in .vertical_thumb?
         _, size = vertical_thumb
         travel = Math.max(content_rows - size, 1)
-        scroll_to(((event.row - Frame::TOP - @drag_grab).to_i64 * view_max_top // travel).to_i)
+        scroll_to(((event.row - Frame::TOP - @drag_grab).to_i64 * max_top // travel).to_i)
       in .horizontal_thumb?
-        return if list
         _, size = horizontal_thumb
         travel = Math.max(@frame.inner_cols - size, 1)
-        @left = ((event.col - Frame::INNER - @drag_grab).to_i64 * max_left // travel).to_i
+        @left = ((event.col - @frame.inner - @drag_grab).to_i64 * max_left // travel).to_i
+        clamp
+      in .divider?
+        # The page lays out for the new width when the drag ends (`refit`).
+        @dock.width = event.col + 1
+        @frame = Frame.new(@frame.rows, @frame.cols, @dock.offset(@frame.cols))
         clamp
       in .none?
       end
@@ -1001,44 +1225,69 @@ module Docv
 
     private def click(event : Term::Click) : Nil
       return unless event.button.left?
+      part = @dock.part(@frame, event.row, event.col)
       if event.count > 1
-        select_at(event.row, event.col, event.count) unless @help || list || !@frame.region(event.row, event.col).content?
+        select_at(event.row, event.col, event.count) unless @help || part ||
+                                                            !@frame.region(event.row, event.col).content?
         return
       end
       return @help = nil if @help
+      if part
+        dock_click(part, event.row)
+        return
+      end
       region = @frame.region(event.row, event.col)
       return @running = false if region.close?
+      return perform(Action::Help) if region.name?
       @selection = nil
-      if region.bar?
-        focus_bar("") unless @mode.search?
-        return
-      end
       return unless region.content?
-      if picker = list
-        accept if picker.select_row(event.row - Frame::TOP)
-        return
-      end
+      @focus = Focus::Page
       row = event.row - page_top
       return unless 0 <= row < page_rows
       index = @top + row
       line = @lines[index]? || return
-      col = @left + event.col - Frame::LEFT
+      col = @left + event.col - @frame.left
       line.links.each do |link|
         if link.col <= col < link.col + link.width
-          @focus = @links.index { |entry| entry[0] == index && entry[1] == link }
+          @link = @links.index { |entry| entry[0] == index && entry[1] == link }
           open_link(link)
           return
         end
       end
     end
 
+    # A click on *part* of the dock at screen *row*: the field takes the
+    # keyboard; a tree row opens its page or folds and unfolds its group.
+    private def dock_click(part : Dock::Part, row : Int32) : Nil
+      case part
+      when .field?
+        @focus = Focus::Field
+      when .tree?
+        offset = @dock.tree_row(@frame, row) || return
+        tree = self.tree
+        return unless tree.select_row(offset)
+        @focus = Focus::Tree
+        tree_open(tree)
+      end
+    end
+
     private def scroll(event : Term::Scroll) : Nil
-      if help = @help
-        help.scroll(event.dy * WHEEL_LINES, @frame)
+      if (help = @help) && @dock.part(@frame, event.row, event.col).nil?
+        if event.mods.shift?
+          help.scroll_x((event.dy + event.dx) * HORIZONTAL_STEP, @frame)
+        else
+          help.scroll(event.dy * WHEEL_LINES, @frame)
+          help.scroll_x(event.dx * HORIZONTAL_STEP, @frame)
+        end
         return
       end
-      if picker = list
-        picker.scroll_to(picker.top + event.dy * WHEEL_LINES, content_rows)
+      if @dock.part(@frame, event.row, event.col)
+        tree = @dock.tree || return
+        if event.mods.shift? || event.dx != 0
+          tree.scroll_x((event.dy + event.dx) * HORIZONTAL_STEP, @dock.tree_cols(@frame), @dock.manual?)
+        else
+          tree.scroll_to(tree.top + event.dy * WHEEL_LINES, @dock.tree_rows(@frame))
+        end
         return
       end
       if event.mods.shift?
@@ -1085,8 +1334,8 @@ module Docv
     private def draw : Nil
       return unless @visible
       @screen.clear
-      if picker = list
-        picker.draw(@screen, Frame::TOP, Frame::INNER, content_rows, @frame.inner_cols, @styles, hover_row)
+      if help = @help
+        help.draw(@screen, @frame, @styles)
       else
         draw_page
       end
@@ -1094,37 +1343,83 @@ module Docv
         role(Theme::Role::Thumb), role(Theme::Role::Close))
       draw_title
       draw_status
-      @help.try &.draw(@screen, @frame, @styles)
+      @dock.draw(@screen, @frame, @styles, @focus.field?, tree_hover, @drag.divider?)
       @screen.render(@tty.output)
+      shape_pointer
     end
 
-    # The visible picker row under the pointer, if any.
-    private def hover_row : Int32?
-      row, col = @pointer || return nil
-      return nil unless list
-      @frame.region(row, col).content? ? row - Frame::TOP : nil
+    # Sets the pointer shape for what lies under the pointer, when it
+    # changed.
+    private def shape_pointer : Nil
+      hover = hover_kind
+      return if hover == @hover
+      @hover = hover
+      @tty.pointer(POINTER_SHAPES[hover])
     end
 
-    # The body, then the pinned header with its rule above it and the
-    # pinned footer with its rule below it. Text takes its role (headings
-    # whole), then links, the matches of finding in the page (the selected
+    # What lies under the pointer: text to select, a link, page or group to
+    # open, a field to type in, the dock's edge or a scrollbar thumb.
+    private def hover_kind : Hover
+      case @drag
+      when .divider?                            then return Hover::Resize
+      when .vertical_thumb?, .horizontal_thumb? then return Hover::Grabbed
+      when .content?                            then return Hover::Text
+      end
+      row, col = @pointer || return Hover::Plain
+      return Hover::Plain if @help
+      if part = @dock.part(@frame, row, col)
+        return case part
+        in .field?   then Hover::Text
+        in .divider? then Hover::Resize
+        in .tree?
+          offset = @dock.tree_row(@frame, row)
+          tree = @dock.tree
+          offset && tree && tree.top + offset < tree.rows.size ? Hover::Link : Hover::Plain
+        end
+      end
+      case @frame.region(row, col)
+      when .close?, .name?  then Hover::Link
+      when .vertical_bar?   then on_thumb?(row - Frame::TOP, vertical_thumb) ? Hover::Thumb : Hover::Plain
+      when .horizontal_bar? then on_thumb?(col - @frame.inner, horizontal_thumb) ? Hover::Thumb : Hover::Plain
+      when .content?        then page_hover(row, col)
+      else                       Hover::Plain
+      end
+    end
+
+    private def on_thumb?(track : Int32, thumb : {Int32, Int32}) : Bool
+      thumb[0] <= track < thumb[0] + thumb[1]
+    end
+
+    # A link, text or nothing at screen cell (*row*, *col*) of the page body.
+    private def page_hover(row : Int32, col : Int32) : Hover
+      offset = row - page_top
+      return Hover::Plain unless 0 <= offset < page_rows
+      line = @lines[@top + offset]? || return Hover::Plain
+      at = @left + col - @frame.left
+      return Hover::Link if line.links.any? { |link| link.col <= at < link.col + link.width }
+      cell = line.cells[at]?
+      cell && !blank?(cell) ? Hover::Text : Hover::Plain
+    end
+
+    # The body. Text takes its role (headings whole), then links, the matches of finding in the page (the selected
     # one's line on `Selection`), the selection and the focused link go on
     # top.
     private def draw_page : Nil
       blocks = @page.document.blocks
       range = selection_range
       current = current_match.try(&.[0])
+      left = @frame.left
       page_rows.times do |row|
         index = @top + row
         line = @lines[index]? || next
         y = page_top + row
-        @screen.blit(y, Frame::LEFT, line.cells, @left, content_cols)
+        @screen.blit(y, left, line.cells, @left, content_cols)
         block = line.block >= 0 ? blocks[line.block] : nil
         if block && block.kind.heading? && (line_role = HEADING_ROLES[block.level - 1]?)
           heading = role(line_role)
-          @screen.restyle(y, Frame::LEFT, content_cols) { heading }
+          @screen.restyle(y, left, content_cols) { heading }
         else
-          @screen.restyle(y, Frame::LEFT, content_cols) { |id| page_style(id) }
+          @screen.restyle(y, left, content_cols) { |id| page_style(id) }
         end
         line.links.each do |link|
           overlay(y, link.col, link.width) { |id| Styles.merge(id, role(Theme::Role::Link)) }
@@ -1133,7 +1428,7 @@ module Docv
           end
         end
         if index == current
-          @screen.restyle(y, Frame::LEFT, content_cols) { |id| Styles.merge(id, role(Theme::Role::Selection)) }
+          @screen.restyle(y, left, content_cols) { |id| Styles.merge(id, role(Theme::Role::Selection)) }
         end
         if @found.includes?(index)
           cells = line.cells
@@ -1144,27 +1439,49 @@ module Docv
         if range && (cols = selected_cols(index, range))
           overlay(y, cols[0], cols[1] - cols[0]) { |id| Styles.merge(id, role(Theme::Role::TextSelection)) }
         end
-        if (focus = @focus) && (entry = @links[focus]?) && entry[0] == index
+        if (focus = @link) && (entry = @links[focus]?) && entry[0] == index
           link = entry[1]
           overlay(y, link.col, link.width) { |id| Styles.merge(id, role(Theme::Role::LinkFocus)) }
         end
       end
-      if header = @header
-        pinned(Frame::TOP, header)
-        @frame.rule(@screen, Frame::TOP + 1, role(Theme::Role::Rule))
-      end
-      if footer = @footer
-        last = @frame.bottom - 1
-        @frame.rule(@screen, last - 1, role(Theme::Role::Rule))
-        pinned(last, footer)
-      end
     end
 
-    # Draws a pinned *line* on screen row *row*, unscrolled, in `PageHeader`.
-    private def pinned(row : Int32, line : Layout::Line) : Nil
-      @screen.blit(row, Frame::LEFT, line.cells, 0, content_cols)
-      over = role(Theme::Role::PageHeader)
-      @screen.restyle(row, Frame::LEFT, content_cols) { |id| Styles.merge(page_style(id), over) }
+    # The title row: the title, then the page's heading centered in
+    # `PageHeader` (`Help::TITLE` while the help is shown), with the page
+    # footer's source and date after it in `Detail` while the pointer is on
+    # it.
+    private def draw_title : Nil
+      @frame.title(@screen, role(Theme::Role::Title), role(Theme::Role::Version))
+      heading = @help ? Help::TITLE : page_heading
+      return if heading.empty?
+      first, limit = @frame.heading_bounds
+      text = Unicode.truncate(heading, limit - first)
+      col = @frame.heading_col(Unicode.text_width(text))
+      stop = @screen.write(0, col, text, role(Theme::Role::PageHeader))
+      detail = @help ? "" : page_detail
+      return if detail.empty? || limit - stop - 2 < 1
+      row, at = @pointer || return
+      return unless row == 0 && col <= at < stop + 2 + Unicode.text_width(detail)
+      @screen.write(0, stop + 2, Unicode.truncate(detail, limit - stop - 2), role(Theme::Role::Detail))
+    end
+
+    # The page's heading: the manual and the reference of a manual page
+    # (`ABRT Manual - ABRT(1)`), the file name and first heading of a
+    # document (`README.md - docv`); empty for the start page.
+    private def page_heading : String
+      document = @page.document
+      unless document.title.empty? || document.format.markdown?
+        return document.manual.empty? ? document.reference : "#{document.manual}#{HEADING_SEPARATOR}#{document.reference}"
+      end
+      name = @page.path.try { |path| File.basename(path) } || return ""
+      heading = document.blocks.find(&.kind.heading?).try(&.text.strip) || ""
+      heading.empty? ? name : "#{name}#{HEADING_SEPARATOR}#{heading}"
+    end
+
+    # The page footer's source and date.
+    private def page_detail : String
+      document = @page.document
+      [document.source, document.date].reject(&.empty?).join("  ")
     end
 
     # Restyles page columns *col*...*col + width* on screen row *row*.
@@ -1176,54 +1493,41 @@ module Docv
     # The screen column and count of the visible part of page columns
     # *col*...*col + width*; `nil` when none is visible.
     private def visible(col : Int32, width : Int32) : {Int32, Int32}?
-      start = Frame::LEFT + col - @left
-      finish = Math.min(start + width, Frame::LEFT + content_cols)
-      start = Math.max(start, Frame::LEFT)
+      start = @frame.left + col - @left
+      finish = Math.min(start + width, @frame.left + content_cols)
+      start = Math.max(start, @frame.left)
       finish > start ? {start, finish - start} : nil
     end
 
-    # The title row: the title, then the search bar: its text with a
-    # cursor while focused (a leading `/` in `Prompt`), else the placeholder.
-    private def draw_title : Nil
-      @frame.title(@screen, role(Theme::Role::Title), role(Theme::Role::Version))
-      return unless @frame.bar?
-      field = role(Theme::Role::Field)
-      start, limit = @frame.bar(@screen, field)
-      unless @mode.search?
-        @screen.write(0, start, Unicode.truncate(PLACEHOLDER, limit - start), Styles.merge(field, role(Theme::Role::Placeholder)))
-        return
-      end
-      text = @field.text
-      visible = tail(text, limit - start - 1)
-      col = start
-      if visible == text && text.starts_with?(MANUAL_PREFIX)
-        col = @screen.write(0, col, MANUAL_PREFIX.to_s, Styles.merge(field, role(Theme::Role::Prompt)))
-        visible = text[1..]
-      end
-      col = @screen.write(0, col, visible, field)
-      @screen[0, col] = Cell.blank(Styles.merge(field, role(Theme::Role::Cursor))) if col < limit
-    end
-
     # The status row: the message on the left; on the right the result
-    # count (and indexing progress) of the page search, or the layout,
-    # visible lines and column of the page, after the selected match and
-    # the match count while finding in it.
+    # count of a manual search, or the selected match and the match count
+    # while finding in the page, the progress of indexing and of reading
+    # the pages, then the layout, visible lines and column of the page (the
+    # visible lines of the help while it is shown).
     private def draw_status : Nil
       parts = [] of String
-      if picker = list
-        parts << "#{picker.results.size}/#{picker.items.size}"
-        if (progress = @index_progress) && progress[0] < progress[1]
-          parts << "indexing #{progress[0] * 100 // progress[1]}%"
-        end
+      if @dock.open? && @dock.manual?
+        tree = @dock.pages
+        parts << "#{tree.results.size}/#{tree.items.size}" if tree
+      elsif (finder = @finder) && !finder.query.blank?
+        parts << (@found.empty? ? "no matches" : "match #{finder.selected + 1}/#{@found.size}")
+      end
+      if @dock.open? && (progress = @index_progress) && progress[0] < progress[1]
+        parts << "indexing #{progress[0] * 100 // progress[1]}%"
+      end
+      if (progress = @text_progress) && progress[1] > 0
+        parts << "reading pages #{progress[0] * 100 // progress[1]}%"
+      end
+      if help = @help
+        rows = help.rows(@frame)
+        parts << "#{help.top + 1}-#{Math.min(help.top + rows, help.lines.size)}/#{help.lines.size}"
+        parts << "col #{help.left + 1}"
       else
-        if (picker = @picker) && !picker.query.blank?
-          parts << (@found.empty? ? "no matches" : "match #{picker.selected + 1}/#{@found.size}")
-        end
         parts << (@wrap ? "[wrap]" : "[nowrap]")
-        unless @lines.empty?
-          parts << "#{@top + 1}-#{Math.min(@top + page_rows, @lines.size)}/#{@lines.size}"
-          parts << "col #{@left + 1}"
-        end
+      end
+      if @help.nil? && !@lines.empty?
+        parts << "#{@top + 1}-#{Math.min(@top + page_rows, @lines.size)}/#{@lines.size}"
+        parts << "col #{@left + 1}"
       end
       row = @frame.status_row
       text = parts.join(STATUS_SEPARATOR)
@@ -1240,20 +1544,6 @@ module Docv
         col = @screen.write(row, col, STATUS_SEPARATOR, role(Theme::Role::StatusSeparator)) if index > 0
         col = @screen.write(row, col, part, role(Theme::Role::Status))
       end
-    end
-
-    # The end of *text* that fits in *width* columns, after a `…` when cut.
-    private def tail(text : String, width : Int32) : String
-      return text if Unicode.text_width(text) <= width
-      return "" if width < 2
-      graphemes = text.graphemes
-      used = 1
-      start = graphemes.size
-      while start > 0 && used + Unicode.width(graphemes[start - 1].to_s) <= width
-        start -= 1
-        used += Unicode.width(graphemes[start].to_s)
-      end
-      "…" + graphemes[start..].join(&.to_s)
     end
   end
 end

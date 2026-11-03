@@ -68,6 +68,7 @@ module Docv
     @scores = [] of Int32
     @chunks = [] of Int32
     @consecutive = [] of Bool
+    @ascii_folds : Array(Int32)? = nil
 
     def initialize(@query : String)
       @exact = query != query.downcase
@@ -118,6 +119,40 @@ module Docv
     def score(text : String) : Int32?
       return 0 if @codes.empty?
       text.ascii_only? ? run(text.to_slice, nil) : run(text.chars, nil)
+    end
+
+    # True when the query is a subsequence of the UTF-8 *text*, under the
+    # same case rule as `score`: what `score` finds a match in, without
+    # aligning. Used to count matching lines in bulk (`Corpus`).
+    def match?(text : Bytes) : Bool
+      count = @codes.size
+      return true if count == 0
+      index = 0
+      if table = ascii_folds
+        target = @codes.unsafe_fetch(0)
+        bytes = text.to_unsafe
+        text.size.times do |offset|
+          byte = bytes[offset]
+          next unless byte < 128 && table.unsafe_fetch(byte) == target
+          index += 1
+          return true if index == count
+          target = @codes.unsafe_fetch(index)
+        end
+      else
+        String.new(text).each_char do |char|
+          next unless fold(char.ord) == @codes[index]
+          index += 1
+          return true if index == count
+        end
+      end
+      false
+    end
+
+    # The folded code of every ASCII byte, for an ASCII query; `nil` for
+    # other queries.
+    private def ascii_folds : Array(Int32)?
+      return nil unless @codes.all? { |code| code < 128 }
+      @ascii_folds ||= Array(Int32).new(128) { |code| fold(code) }
     end
 
     # The character indices of the best alignment in *text*; `nil` when

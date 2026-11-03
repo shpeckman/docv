@@ -42,6 +42,10 @@ docv \- view manual pages and Markdown documents in a terminal, with fuzzy searc
 .OP \-o dir
 .RI [ shard ]
 .YS
+.
+.SY docv
+.B text\-worker
+.YS
 .SH DESCRIPTION
 .B docv
 shows manual pages and Markdown documents in a full-screen terminal viewer.
@@ -72,8 +76,13 @@ Links can be followed and gone back from: cross-references such as
 .MR ls 1 ,
 and the links of a Markdown document to other files and to its headings.
 Links to URLs are written as terminal hyperlinks (OSC 8).
-A search bar fuzzy-finds in the displayed page, or in all pages of the
-manual and the Markdown documents of the project.
+A dock left of the page holds a search field and the tree of the current
+page's group, or of the current folder's pages and Markdown documents; the
+field fuzzy-finds in the displayed page while the tree counts the matching
+lines of each page, or, after a
+.BR / ,
+ranks every page of the manual.
+The mouse pointer takes the shape of what it is over.
 Colors follow the terminal's own color theme.
 .PP
 A
@@ -92,7 +101,11 @@ An argument that contains a slash, or names an existing file and is not a
 section name, is read as a file: a page, or a Markdown document.
 Without a page,
 .B docv
-opens on an empty page in the page search.
+opens on an empty page with the dock closed;
+.B p
+opens it on the pages and documents of the current folder's project, and
+.B /
+searches every page.
 .PP
 When standard output is not a terminal, the page is printed as plain text,
 .B MANWIDTH
@@ -167,6 +180,13 @@ no longer produced are removed.
 A file in the way that was not generated from doc comments stops the run.
 .B SOURCE_DATE_EPOCH
 sets the date of the pages.
+.TP
+.B text\-worker
+Read page paths from standard input, one per line, and write the text of
+each page to standard output: its size in bytes on a line, then the text.
+The viewer runs these processes to read the text of all pages in parallel
+(see
+.BR DOCK ).
 .SH SEARCH PATH
 Pages are looked up, and listed by the page search, along this path,
 earlier directories first.
@@ -252,14 +272,20 @@ exist next to it, and then the
 .B MANDATORY_MANPATH
 directories.
 .SH SCREEN
-The top row holds the title, the search bar between
-.B \[u25D6]
-and
-.BR \[u25D7] ,
-and a close mark
+The top row holds the title (a click on it shows the help), the page's
+heading centered, and a close mark
 .RB ( \[u1F7AA] ).
+The heading of a manual page is its manual and reference, for example
+.RB \(lq "ABRT Manual \- ABRT(1)" \(rq;
+with the pointer on it, the source and date of the page footer show beside
+it, dimmed.
+The heading of a Markdown document is its file name and first heading, for
+example
+.RB \(lq "README.md \- docv" \(rq.
 A line runs below it.
-Then comes the page, with the vertical scrollbar in the last column, of
+Then comes the dock, when it is open (see
+.BR DOCK ),
+and the page, with the vertical scrollbar in the last column, of
 which only the thumb
 .RB ( \[u2503] )
 is drawn, and below the page the horizontal scrollbar as a line, thumb
@@ -270,8 +296,12 @@ The bottom row holds messages on the left, and on the right the layout, the
 lines in view and the first column in view, for example
 .RB \(lq "[wrap] \[u2502] 1\-56/801 \[u2502] col 1" \(rq.
 While finding in the page it starts with the selected match and the number
-of matches; while pages are listed it shows their count and the indexing
-progress.
+of matches, during a
+.B /
+search with the number of results; then the progress of indexing and of
+reading the text of all pages.
+While the help is shown, it shows the lines and first column of the help in
+view instead.
 .SH KEYS
 Keys are looked up by physical key first (the base layout key of the kitty
 keyboard protocol), then by the key reported, then by the shifted symbol
@@ -328,17 +358,25 @@ Follow the focused link (see
 Back to the previous page.
 .TP
 .BR f ", " t
-Focus the search bar to find in the page.
+Open the dock with the keyboard in its search field, to find in the page.
 .TP
 .BR / ", " o
-Focus the search bar with
+The same with
 .B /
 typed, to search the pages of the manual and the documents of the project.
 .TP
+.B p
+Open the dock with the keyboard in its tree, or close it (see
+.BR DOCK ).
+.TP
 .B h
-Show the help: every key as it is bound, and the mouse gestures.
-The scrolling keys and the wheel scroll it; any other key or a click closes
-it.
+Show the help in place of the page, with
+.B HELP
+as the heading of the title row: every key as it is bound, and the mouse
+gestures.
+The scrolling keys and the wheel scroll it, also sideways
+.RB ( l ", " H ", " L ", " 0 ", " $ ", " Shift\- wheel);
+any other key or a click closes it.
 .TP
 .B Esc
 Clear the link focus, the text selection and the message.
@@ -348,44 +386,143 @@ Redraw the screen.
 .TP
 .BR q ", " Q ", " Ctrl\-c
 Quit.
-.SS The search bar
+.SS The search field
 .TP
 text
-Type into the bar.
+Type into the field.
 .TP
 .B Enter
-Stay at the selected match, or open the selected page.
+Give the page the keyboard at the selected match; during a
+.B /
+search, open the selected page, or fold or unfold the selected group.
 .TP
-.BR Esc ", " Ctrl\-c ", " Ctrl\-g
-Leave the bar and empty it; when finding in the page, go back to where the
-search started.
+.BR Esc ", " Ctrl\-c ", " Ctrl\-g ", " Tab
+Give the tree the keyboard.
 .TP
 .B Backspace
 Delete the last character.
 .TP
 .B Ctrl\-u
-Clear the bar.
+Clear the field.
 .TP
-.BR \(da ", " Ctrl\-n ", " Tab " / " \(ua ", " Ctrl\-p ", " Shift\-Tab
-Next / previous match or page.
+.BR \(da ", " Ctrl\-n " / " \(ua ", " Ctrl\-p ", " Shift\-Tab
+Next / previous match, or row of the tree.
 .TP
 .BR PgDn " / " PgUp
-A screenful of matches or pages down / up.
-.SH SEARCH BAR
-Text without a leading
+A screenful of matches or rows down / up.
+.TP
+.BR \(-> " / " \(<-
+Unfold the selected group, or step into it when it is open / fold it, or
+step out to the group around the selected page or folded group.
+.TP
+.BR Shift\-\(-> " / " Shift\-\(<-
+Scroll the tree right / left.
+.SS The tree
+Keys the tree does not bind go to the page.
+.TP
+.BR j ", " \(da ", " Ctrl\-n " / " k ", " \(ua ", " Ctrl\-p
+Next / previous page or group.
+.TP
+.BR PgDn " / " PgUp
+A screenful down / up.
+.TP
+.BR g ", " Home " / " G ", " End
+First / last row.
+.TP
+.B Enter
+Open the selected page, or fold or unfold the selected group.
+.TP
+.BR l ", " \(-> " / " \(<-
+Unfold the selected group, or step into it when it is open / fold it, or
+step out to the group around the selected page or folded group.
+.TP
+.BR L ", " Shift\-\(-> " / " H ", " Shift\-\(<-
+Scroll the tree right / left.
+.TP
+.B Tab
+Give the search field the keyboard.
+.TP
+.B Esc
+Give the page the keyboard.
+.SH DOCK
+The dock sits left of the page: the search field between
+.B \[u25D6]
+and
+.B \[u25D7]
+on its first row (showing
+.B find
+while empty), then the tree of pages, with a divider on its right
+edge that can be dragged to resize it.
+A regular dock narrows the page; an overlay dock covers the left of the page
+(see
+.B dock
+in
+.MR docv\-config 5 ).
+.PP
+The tree shows the pages around the current one: for a page of the project,
+or without a page, the project's pages
+.RI ( name ( section ))
+and Markdown documents (by their path from the project root); for another
+page, the outermost group it is in, or the page alone when it is in none.
+Names that share a prefix fold into nested groups:
+.B abrt\-cli
+and
+.B abrt\-dump\-oops
+go under
+.BR abrt ,
+and
+.B abrt\-dump\-oops
+and
+.B abrt\-dump\-xorg
+under
+.B abrt\-dump
+within it.
+A prefix is made of whole tokens of the name, split at
+.BR \- ", " _ ", " . ", " :
+and
+.B /
+(so
+.BR File::Spec ,
+.B systemd.unit
+and the project's
+.B docs/guide.md
+group too), and it takes at least 3 entries to make a group.
+Groups cross sections and are case-sensitive; a page named like its group
+is listed inside it.
+Rows are named relative to their group, so
+.B abrt\-action\-analyze\-c(1)
+reads
+.B c(1)
+under
+.BR analyze ;
+a page named like its group is named relative to the group above.
+The groups are folded and listed by name, except those around the current
+page, which is selected; the tree follows the page, switching to the group
+of a page in another one.
+Rows wider than the dock scroll sideways.
+.PP
+Text in the search field without a leading
 .B /
 fuzzy-finds in the lines of the displayed page, in its current layout.
 The page stays on screen: matched characters are highlighted in place, the
 line of the selected match is shaded, and the page scrolls to the best match
 while typing.
+Meanwhile the lines that every term matches are counted for every page of
+the manual, and the tree shows each of its pages' count at the right of the
+row, its name in the
+.B hit
+color; a group shows how many of its pages have hits.
+The text of all pages is read once, in the background, by
+.B docv text\-worker
+processes, and cached.
+Short terms match a line of most pages.
 .PP
 Text after a leading
 .B /
-lists the pages of the search path as
-.IB name ( section )
-with the description from their NAME section, and the Markdown documents of
-the project by their path from the project root with their first heading
-and paragraph, matched against both.
+fills the tree with every page of the search path and every document of
+the project, the project's first, and ranks them, each with the description from its NAME
+section (for a document its first heading and paragraph) after the name,
+matched against both.
 The project's pages and documents come first, also ahead of better matches
 elsewhere.
 A match in the name counts slightly more than an equal match in the
@@ -394,8 +531,13 @@ description, so
 finds
 .MR ls 1
 by its description.
-The descriptions are read from the pages in the background while the list
-is in use, and cached.
+Groups without a match are left out and the others are open and ranked by
+their best match, each level on its own; a group folded by hand stays folded
+until the text changes.
+Opening a page from the results ends the search: the field empties, the
+tree shows the page's group, and the page gets the keyboard.
+The descriptions are read from the pages in the background while the dock
+is open, and cached.
 .PP
 Matching is fuzzy: the characters of each space-separated term must appear
 in order, and matches score higher at word starts, in runs of consecutive
@@ -437,11 +579,23 @@ Scroll; a click on a track pages in its direction.
 click a link
 Follow it.
 .TP
-click the search bar
-Focus it.
+click the search field
+Give it the keyboard.
 .TP
-hover over a listed page, click it
-Highlight it, open it.
+hover over a row of the tree, click it
+Highlight it; open the page, or fold or unfold the group.
+.TP
+.RB "wheel, " Shift\- "wheel over the dock"
+Scroll the tree, or scroll it sideways.
+.TP
+drag the dock's right edge
+Resize the dock.
+.TP
+.RB "click " \[uFF24]\[uFF2F]\[uFF23]\[uFF36] " v0.1.0"
+Show the help.
+.TP
+point at the page's heading
+Show the source and date of the page footer beside it.
 .TP
 .RB "click " \[u1F7AA]
 Quit.
@@ -573,7 +727,7 @@ On start, and again when the terminal reports a change of color scheme,
 asks the terminal for its colors with OSC 21 (the color control protocol of
 .BR kitty ).
 Once it answers, colors ramped toward its foreground or background, such as
-the background of the search bar, are exact and drawn in 24-bit color.
+the background of the search field, are exact and drawn in 24-bit color.
 Otherwise the standard xterm colors stand in, and the color depth comes from
 .B COLORTERM
 and
@@ -586,7 +740,8 @@ Roles are restyled in
 switches to the alternate screen and uses the kitty keyboard protocol, SGR
 mouse reports in pixels, in-band resize, focus, visibility and color scheme
 notifications, synchronized updates, OSC 21 for the color theme, OSC 52
-for the clipboard and OSC 8 for hyperlinks.
+for the clipboard, OSC 8 for hyperlinks and OSC 22 for the shape of the
+mouse pointer (text, pointing hand, resize, grab).
 Terminals without some of these get the legacy key encodings, cell mouse
 coordinates and default colors; the clipboard write first sends an invalid
 payload, which clears the clipboard in terminals that append writes and is
@@ -657,6 +812,11 @@ are comments.
 and
 .B path\-rm
 rewrite it.
+.TP
+.I $XDG_CACHE_HOME/docv/text.bin
+The text of all pages, for the hit counts of the tree, with each page's
+modification time; only changed pages are read again.
+About 200 MB for 27,000 pages.
 .TP
 .I $XDG_CACHE_HOME/docv/index.tsv
 The page descriptions of the page search.

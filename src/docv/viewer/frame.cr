@@ -1,27 +1,29 @@
 # src/docv/viewer/frame.cr
 module Docv
   class Viewer
-    # The screen layout: a title row with the search bar and a close mark, a
-    # line under it, the content with one blank column of padding on either
-    # side, and the vertical scrollbar in the last column (only its thumb is
-    # drawn). Below the content the horizontal scrollbar runs as a line
-    # (thumb `━`, track `─`), then the status row. A thumb that fills its
-    # track means everything fits.
+    # The screen layout: a title row with the name, the page's heading
+    # centered and a close mark, a line under it, the
+    # content with one blank column of padding on either side, and the
+    # vertical scrollbar in the last column (only its thumb is drawn). Below
+    # the content the horizontal scrollbar runs as a line (thumb `━`, track
+    # `─`), then the status row. A thumb that fills its track means
+    # everything fits. A regular dock (`Dock`) takes the first *dock*
+    # columns of the content rows; the content area starts after it.
     #
     # ```text
-    # ＤＯＣＶ v0.1.0   ◖ search bar                 ◗ 🞪
-    # ────────────────────────────────────────────────────
-    #  content                                          ┃
-    #  content                                          ┃
-    #  content
-    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━─
+    # ＤＯＣＶ v0.1.0          Manual - LS(1)            🞪
+    # ──────────┬─────────────────────────────────────────
+    # dock      │ content                               ┃
+    # dock      │ content                               ┃
+    # dock      │ content
+    # ──────────┴━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━─
     # message                             status │ status
     # ```
     struct Frame
       # Where a screen cell lies.
       enum Region
+        Name
         Title
-        Bar
         Close
         Border
         Content
@@ -35,27 +37,31 @@ module Docv
       # The title at the start of the title row: the name, then the version.
       NAME    = "ＤＯＣＶ"
       VERSION = " v#{Docv::VERSION}"
-      # The ends of the search bar, drawn in the bar's background color.
-      BAR_LEFT  = '◖'
-      BAR_RIGHT = '◗'
-      # Columns between the title and the search bar.
-      BAR_GAP = 3
 
       # Screen row of the first content row.
       TOP = 2
-      # Screen column of the first cell of the content area (padding
-      # included).
-      INNER = 0
       # Blank columns between the content and either edge of the content
       # area.
       PADDING = 1
-      # Screen column of the first content column.
-      LEFT = INNER + PADDING
 
       getter rows : Int32
       getter cols : Int32
+      # Columns a regular dock takes left of the content area.
+      getter dock : Int32
 
-      def initialize(@rows : Int32, @cols : Int32)
+      def initialize(@rows : Int32, @cols : Int32, dock : Int32 = 0)
+        @dock = dock.clamp(0, Math.max(@cols - 2, 0))
+      end
+
+      # Screen column of the first cell of the content area (padding
+      # included).
+      def inner : Int32
+        @dock
+      end
+
+      # Screen column of the first content column.
+      def left : Int32
+        inner + PADDING
       end
 
       def content_rows : Int32
@@ -65,7 +71,7 @@ module Docv
       # Columns of the content area: everything left of the vertical
       # scrollbar.
       def inner_cols : Int32
-        Math.max(@cols - INNER - 1, 1)
+        Math.max(@cols - inner - 1, 1)
       end
 
       def content_cols : Int32
@@ -84,7 +90,7 @@ module Docv
 
       # Screen column of the vertical scrollbar.
       def right : Int32
-        INNER + inner_cols
+        inner + inner_cols
       end
 
       # Screen column of the close mark, left of the scrollbar column.
@@ -92,31 +98,36 @@ module Docv
         Math.max(right - 1, 0)
       end
 
-      # Screen columns of the search bar ends (`BAR_LEFT`, `BAR_RIGHT`).
-      def bar_start : Int32
-        Unicode.text_width(NAME) + Unicode.text_width(VERSION) + BAR_GAP
+      # Columns the name and the version take at the start of the title row.
+      def name_width : Int32
+        Unicode.text_width(NAME) + Unicode.text_width(VERSION)
       end
 
-      def bar_end : Int32
-        close_col - 2
+      # The first column and the limit (exclusive) of the page's heading on
+      # the title row: between the name and the close mark.
+      def heading_bounds : {Int32, Int32}
+        {name_width + 2, Math.max(close_col - 2, name_width + 2)}
       end
 
-      # True when the title row has room for the search bar.
-      def bar? : Bool
-        bar_end - bar_start >= 4
+      # The first column of a heading *width* columns wide: centered on the
+      # screen, kept within `heading_bounds`.
+      def heading_col(width : Int32) : Int32
+        first, limit = heading_bounds
+        ((@cols - width) // 2).clamp(first, Math.max(first, limit - width))
       end
 
-      # The region of screen cell (*row*, *col*); the padding is content.
+      # The region of screen cell (*row*, *col*); the padding is content,
+      # the columns of a regular dock are border.
       def region(row : Int32, col : Int32) : Region
         if row < TOP - 1
           return Region::Close if col == close_col
-          return bar? && bar_start <= col <= bar_end ? Region::Bar : Region::Title
+          return col < name_width ? Region::Name : Region::Title
         end
         return Region::Status if row > bottom
         if row == bottom
-          return INNER <= col < right ? Region::HorizontalBar : Region::Border
+          return inner <= col < right ? Region::HorizontalBar : Region::Border
         end
-        return Region::Border if row < TOP || col < INNER
+        return Region::Border if row < TOP || col < inner
         col >= right ? Region::VerticalBar : Region::Content
       end
 
@@ -140,8 +151,9 @@ module Docv
         start, size = vertical
         size.times { |offset| screen[TOP + start + offset, right] = Cell.new('┃', thumb) }
         start, size = horizontal
+        screen.fill(bottom, 0, inner, Cell.new('─', line))
         inner_cols.times do |col|
-          screen[bottom, INNER + col] = start <= col < start + size ? Cell.new('━', thumb) : Cell.new('─', line)
+          screen[bottom, inner + col] = start <= col < start + size ? Cell.new('━', thumb) : Cell.new('─', line)
         end
         screen[bottom, right] = Cell.new('─', line)
       end
@@ -151,43 +163,12 @@ module Docv
         screen.write(0, screen.write(0, 0, NAME, name), VERSION, version)
       end
 
-      # Draws the search bar filled in style *field*, its ends in the bar's
-      # background color. Returns the first and past-the-last columns for
-      # its text.
-      def bar(screen : Screen, field : UInt16) : {Int32, Int32}
-        ends = Styles.id(Style.new(fg: Styles[field].bg))
-        screen[0, bar_start] = Cell.new(BAR_LEFT, ends)
-        screen.fill(0, bar_start + 1, bar_end - bar_start - 1, Cell.blank(field))
-        screen[0, bar_end] = Cell.new(BAR_RIGHT, ends)
-        {bar_start + 2, bar_end - 1}
-      end
-
       # Draws a rule across the content area on screen row *row* in style
       # *line*.
       def rule(screen : Screen, row : Int32, line : UInt16) : Nil
-        screen.fill(row, INNER, inner_cols, Cell.new('─', line))
-        screen[row, INNER] = Cell.new('╶', line)
+        screen.fill(row, inner, inner_cols, Cell.new('─', line))
+        screen[row, inner] = Cell.new('╶', line)
         screen[row, right - 1] = Cell.new('╴', line)
-      end
-
-      # Draws a rounded box of *height* × *width* cells from (*row*, *col*)
-      # with *title* in its top edge (in *heading*): edges in *line*, inside
-      # filled with *fill*.
-      def box(screen : Screen, row : Int32, col : Int32, height : Int32, width : Int32, title : String,
-              line : UInt16, fill : UInt16, heading : UInt16) : Nil
-        last = col + width - 1
-        screen[row, col] = Cell.new('╭', line)
-        screen.fill(row, col + 1, width - 2, Cell.new('─', line))
-        screen[row, last] = Cell.new('╮', line)
-        screen.write(row, col + 2, " #{title} ", heading) if width > Unicode.text_width(title) + 4
-        (1...height - 1).each do |offset|
-          screen[row + offset, col] = Cell.new('│', line)
-          screen.fill(row + offset, col + 1, width - 2, Cell.blank(fill))
-          screen[row + offset, last] = Cell.new('│', line)
-        end
-        screen[row + height - 1, col] = Cell.new('╰', line)
-        screen.fill(row + height - 1, col + 1, width - 2, Cell.new('─', line))
-        screen[row + height - 1, last] = Cell.new('╯', line)
       end
     end
   end

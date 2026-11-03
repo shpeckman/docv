@@ -45,6 +45,16 @@ describe Docv::Config do
     expect_raises(Docv::Config::Error, /start-wrapped must be true or false/) { Docv::Config.parse("[viewer]\nstart-wrapped = maybe\n") }
   end
 
+  it "reads the dock and search settings" do
+    Docv::Config.parse("").viewer.should eq Docv::ViewerSettings.new
+    Docv::Config.parse(Docv::Config::DEFAULT).viewer.should eq Docv::ViewerSettings.new
+    settings = Docv::Config.parse("[viewer]\ndock = Overlay\ndock-width = 50\ndock-open = yes\nsearch-threads = 4\n").viewer
+    settings.should eq Docv::ViewerSettings.new(Docv::DockStyle::Overlay, 50, true, 4)
+    expect_raises(Docv::Config::Error, /dock must be regular or overlay/) { Docv::Config.parse("[viewer]\ndock = left\n") }
+    expect_raises(Docv::Config::Error, /dock-width must be a number from 16/) { Docv::Config.parse("[viewer]\ndock-width = 3\n") }
+    expect_raises(Docv::Config::Error, /search-threads must be a number/) { Docv::Config.parse("[viewer]\nsearch-threads = many\n") }
+  end
+
   it "parses booleans" do
     Docv::Config.parse("[roff]\nunsafe = yes\n").unsafe?.should be_true
     Docv::Config.parse("[roff]\nunsafe = Off\n").unsafe?.should be_false

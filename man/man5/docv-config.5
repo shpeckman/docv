@@ -112,6 +112,36 @@ See
 in
 .MR docv 1
 for where grammars and queries are looked for.
+.TP
+.B dock
+Where the dock (search field and tree of pages, opened with
+.BR p )
+sits:
+.B regular
+narrows the page to make room for it,
+.B overlay
+covers the left of the page.
+Default
+.BR regular .
+.TP
+.B dock\-width
+Width of the dock in columns, 16 to 400.
+Dragging its right edge changes it until the viewer quits.
+Default
+.BR 36 .
+.TP
+.B dock\-open
+Open the dock at start.
+Default
+.BR false .
+.TP
+.B search\-threads
+How many processes read the text of all pages, and how many threads search
+it, for the hit counts of the tree while finding in the page (0 to 1024).
+.B 0
+is one less than the number of processors.
+Default
+.BR 0 .
 .SH "THE [colors] SECTION"
 Every element of the viewer is drawn in a role, and each key of this
 section restyles one role.
@@ -280,8 +310,10 @@ The focused link.
 Text selected with the mouse.
 .TP
 .B page\-header
-.RB ( foreground\-40 )
-The pinned page header and footer.
+.RB ( bold )
+The page's heading in the title row; the source and date shown beside it
+take
+.BR detail .
 .TP
 .B title
 .RB ( bold )
@@ -310,7 +342,7 @@ rules in documents.
 .TP
 .B field
 .RB ( "on background+12" )
-The search bar; its ends take its background as their color.
+The search field; its ends take its background as their color.
 .TP
 .B prompt
 .RB ( "bold blue" )
@@ -320,11 +352,11 @@ of a page search.
 .TP
 .B placeholder
 .RB ( foreground\-50 )
-The hint in the empty search bar.
+The hint in the empty search field.
 .TP
 .B cursor
 .RB ( reverse )
-The cursor of the search bar.
+The cursor of the search field.
 .TP
 .B message
 .RB ( yellow )
@@ -340,27 +372,32 @@ The separators between status parts.
 .TP
 .B name
 .RB ( "bold cyan" )
-Page and document names in the page list, and keys in the help.
+Page and document names in the tree, and keys in the help.
 .TP
 .B detail
 .RB ( foreground\-35 )
-Page and document descriptions in the page list.
+Page and document descriptions in the tree.
 .TP
 .B selection
 .RB ( "on background+22" )
-The selected page in the list; the line of the selected match in the page.
+The selected row of the tree; the line of the selected match in the page.
 .TP
 .B hover
 .RB ( "on background+10" )
-The listed page under the pointer.
+The row of the tree under the pointer.
 .TP
 .B mark
 .RB ( "bold underline yellow" )
 Characters matched by a search.
 .TP
+.B hit
+.RB ( "bold green" )
+Pages in the dock's tree whose text has lines the search in the page
+matches, and their counts.
+.TP
 .B popup
 .RB ( "on background+6" )
-The help box.
+The overlay dock.
 .SH EXAMPLES
 .EX
 [roff]
@@ -369,6 +406,8 @@ unsafe = false
 [viewer]
 start\-wrapped = false
 syntax\-highlighting = false
+dock = overlay
+dock\-width = 40
 
 [colors]
 heading1 = bold #ff8800

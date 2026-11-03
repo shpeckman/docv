@@ -22,6 +22,15 @@ describe Docv::Fuzzy do
     Docv::Fuzzy.new("fb").score("foo-bar").not_nil!.should be > Docv::Fuzzy.new("fb").score("foobar").not_nil!
   end
 
+  it "tests subsequences of raw text" do
+    Docv::Fuzzy.new("srt").match?("sort the lines".to_slice).should be_true
+    Docv::Fuzzy.new("tsr").match?("sort".to_slice).should be_false
+    Docv::Fuzzy.new("sort").match?("SORT".to_slice).should be_true
+    Docv::Fuzzy.new("Sort").match?("sort".to_slice).should be_false
+    Docv::Fuzzy.new("né").match?("Naïve résumé".to_slice).should be_true
+    Docv::Fuzzy.new("").match?(Bytes.empty).should be_true
+  end
+
   it "ignores case for lower-case queries only" do
     Docv::Fuzzy.new("ls").score("LS").should_not be_nil
     Docv::Fuzzy.new("LS").score("ls").should be_nil

@@ -1,28 +1,34 @@
 # src/docv/viewer/help.cr
 module Docv
   class Viewer
-    # The floating help: the keys of the page view and the search bar as
-    # they are bound (`ACTION_HELP`, `FIELD_HELP`), and the mouse gestures,
-    # in a box over the content.
+    # The help: the keys of the page view, the dock's search field and its
+    # tree as they are bound (`ACTION_HELP`, `FIELD_HELP`, `TREE_HELP`), and
+    # the mouse gestures, shown in the page area in place of the page, with
+    # `TITLE` as the heading of the title row. It scrolls both ways.
     class Help
       # A help line: keys or a gesture and what they do; a section title when
       # *heading*.
       record Line, keys : String, text : String = "", heading : Bool = false
 
-      TITLE = "Help"
+      # The heading of the title row while the help is shown.
+      TITLE = "HELP"
       # Widest keys column.
       KEYS_WIDTH = 30
 
       # Mouse gestures and what they do.
       MOUSE = [
         {"wheel", "scroll"},
-        {"Shift-wheel", "scroll sideways"},
+        {"Shift-wheel", "scroll sideways (the page or the tree)"},
         {"drag in the text", "select and copy"},
         {"double-click a word", "select and copy it"},
         {"triple-click", "select and copy the paragraph"},
         {"drag a thumb, click a track", "scroll"},
         {"click a link", "follow it"},
-        {"click the search bar", "focus it"},
+        {"click a page or group in the tree", "open it, or fold or unfold it"},
+        {"click the search field", "focus it"},
+        {"drag the dock's edge", "resize the dock"},
+        {"click #{Frame::NAME}", "this help"},
+        {"point at the page's heading", "show its source and date"},
         {"click #{Frame::CLOSE}", "quit"},
         {"back button", "back to the previous page"},
       ]
@@ -45,21 +51,37 @@ module Docv
       getter lines = [] of Line
       # First visible line.
       getter top = 0
+      # Columns scrolled sideways.
+      getter left = 0
+      # Columns of the keys column and of the widest line.
+      getter keys_width = 0
+      getter width = 0
 
-      def initialize(bindings : Bindings, field_bindings : FieldBindings)
+      def initialize(bindings : Bindings, field_bindings : FieldBindings,
+                     tree_bindings : TreeBindings = TreeBindings.new)
         section("Keys")
         Action.values.each do |action|
           keys = bindings.keys(action)
           @lines << Line.new(names(keys), ACTION_HELP[action]) unless keys.empty?
         end
-        section("Search bar")
-        @lines << Line.new("text", "type; a leading / searches the manual")
+        section("Search field")
+        @lines << Line.new("text", "type: find in the page; a leading / searches the manual")
         FieldAction.values.each do |action|
           keys = field_bindings.keys(action)
           @lines << Line.new(names(keys), FIELD_HELP[action]) unless keys.empty?
         end
+        section("Tree")
+        TreeAction.values.each do |action|
+          keys = tree_bindings.keys(action)
+          @lines << Line.new(names(keys), TREE_HELP[action]) unless keys.empty?
+        end
+        @lines << Line.new("other keys", "go to the page")
         section("Mouse")
         MOUSE.each { |gesture, text| @lines << Line.new(gesture, text) }
+        @keys_width = Math.min(@lines.max_of { |line| line.heading ? 0 : Unicode.text_width(line.keys) }, KEYS_WIDTH)
+        @width = @lines.max_of do |line|
+          line.heading ? Unicode.text_width(line.keys) : @keys_width + 2 + Unicode.text_width(line.text)
+        end
       end
 
       # The name of a key binding: `j`, `Ctrl-f`, `Shift-Tab`, `F5`.
@@ -72,47 +94,67 @@ module Docv
         end
       end
 
-      # Scrolls by *delta* lines in a box on *frame*.
+      # Scrolls by *delta* lines in the page area of *frame*.
       def scroll(delta : Int32, frame : Frame) : Nil
-        @top = (@top + delta).clamp(0, Math.max(@lines.size - rows(frame), 0))
+        @top = (@top + delta).clamp(0, max_top(frame))
       end
 
-      # Lines shown at once on *frame*.
+      # Lines shown at once on *frame*: the content rows.
       def rows(frame : Frame) : Int32
-        Math.max(Math.min(@lines.size, frame.content_rows - 2), 1)
+        Math.max(frame.content_rows, 1)
       end
 
-      # Draws the help centered over the content area of *frame* with the
-      # role style ids *styles*: on `Popup`, edges in `Border`, the title in
-      # `Title`, section titles in `Heading1` and keys in `Name`. `▲` and `▼`
-      # in the edges mark more lines above and below.
+      # The largest `top` on *frame*.
+      def max_top(frame : Frame) : Int32
+        Math.max(@lines.size - rows(frame), 0)
+      end
+
+      # Scrolls sideways by *delta* columns in the page area of *frame*.
+      def scroll_x(delta : Int32, frame : Frame) : Nil
+        @left = (@left + delta).clamp(0, max_left(frame))
+      end
+
+      # The largest `left` on *frame*.
+      def max_left(frame : Frame) : Int32
+        Math.max(@width - frame.content_cols, 0)
+      end
+
+      # Draws the help in the page area of *frame*, from its first content
+      # column scrolled by `left`, with the role style ids *styles*: section
+      # titles in `Heading1`, keys in `Name` (cut at `KEYS_WIDTH`), what they
+      # do in `Text`.
       def draw(screen : Screen, frame : Frame, styles : Array(UInt16)) : Nil
-        fill = styles[Theme::Role::Popup.value]
-        style = ->(role : Theme::Role) { Styles.merge(fill, styles[role.value]) }
-        keys_width = Math.min(@lines.max_of { |line| line.heading ? 0 : Unicode.text_width(line.keys) }, KEYS_WIDTH)
-        text_width = @lines.max_of { |line| Unicode.text_width(line.heading ? line.keys : line.text) }
-        width = Math.min(keys_width + 2 + text_width + 4, frame.inner_cols)
-        visible = rows(frame)
-        height = visible + 2
-        row = Frame::TOP + Math.max((frame.content_rows - height) // 2, 0)
-        col = Frame::INNER + Math.max((frame.inner_cols - width) // 2, 0)
-        line = style.call(Theme::Role::Border)
-        frame.box(screen, row, col, height, width, TITLE, line, fill, style.call(Theme::Role::Title))
-        left = col + 2
-        limit = col + width - 2
-        visible.times do |offset|
+        origin = frame.left
+        limit = origin + frame.content_cols
+        start = origin - @left
+        rows(frame).times do |offset|
           entry = @lines[@top + offset]? || break
-          y = row + 1 + offset
+          y = Frame::TOP + offset
           if entry.heading
-            screen.write(y, left, Unicode.truncate(entry.keys, limit - left), style.call(Theme::Role::Heading1))
+            put(screen, y, origin, limit, start, entry.keys, styles[Theme::Role::Heading1.value])
             next
           end
-          screen.write(y, left, Unicode.truncate(entry.keys, Math.min(keys_width, limit - left)), style.call(Theme::Role::Name))
-          start = left + keys_width + 2
-          screen.write(y, start, Unicode.truncate(entry.text, limit - start), style.call(Theme::Role::Text)) if start < limit
+          put(screen, y, origin, Math.min(start + @keys_width, limit), start, Unicode.truncate(entry.keys, @keys_width),
+            styles[Theme::Role::Name.value])
+          put(screen, y, origin, limit, start + @keys_width + 2, entry.text, styles[Theme::Role::Text.value])
         end
-        screen[row, col + width - 2] = Cell.new('▲', line) if @top > 0
-        screen[row + height - 1, col + width - 2] = Cell.new('▼', line) if @top + visible < @lines.size
+      end
+
+      # Writes the part of *text* starting at screen column *col* that lies
+      # between *origin* and *limit* (exclusive).
+      private def put(screen : Screen, row : Int32, origin : Int32, limit : Int32, col : Int32, text : String,
+                      style : UInt16) : Nil
+        text.each_grapheme do |grapheme|
+          cluster = grapheme.to_s
+          width = Unicode.width(cluster)
+          next if width == 0
+          break if col + width > limit
+          if col >= origin
+            screen[row, col] = Cell.from(cluster, style)
+            screen[row, col + 1] = Cell.continuation(style) if width == 2
+          end
+          col += width
+        end
       end
 
       private def section(title : String) : Nil

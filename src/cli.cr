@@ -4,7 +4,7 @@ require "./docv/crystal_pages"
 
 # The `docv` command: shows a manual page or a Markdown document in the
 # viewer, or prints it as text when standard output is not a terminal.
-# Without a page it opens the viewer on an empty page in the page search.
+# Without a page it opens the viewer on an empty page, the dock closed.
 # `path-add`, `path-rm` and `path-list` manage the added man page
 # directories; `gen-cr` generates the man pages of a Crystal shard.
 module Docv::CLI
@@ -21,7 +21,8 @@ module Docv::CLI
                         (also [viewer] start-wrapped = false in config.ini)
       -h, --help        show this help
 
-    Without a page, the viewer opens on an empty page in the page search.
+    Without a page, the viewer opens on an empty page; p opens the dock with
+    the pages and documents of the current folder's project.
 
     Pages are looked up in the man page directories of the project around
     the current directory, then in the added directories, then along the
@@ -37,6 +38,9 @@ module Docv::CLI
                         shard (default: the current directory) from README.md
                         and its doc comments: name.7cr and Type.3cr pages in
                         dir (default: man), relative to the shard root
+      text-worker       (used by the viewer) read page paths from standard
+                        input and write the text of each page to standard
+                        output, for finding text across all pages
 
     Configuration: $XDG_CONFIG_HOME/docv/config.ini (created on first run)
     Added directories: $XDG_CONFIG_HOME/docv/paths
@@ -48,6 +52,9 @@ module Docv::CLI
     when "path-rm"   then return path_rm(args[1..])
     when "path-list" then return args.size == 1 ? path_list : usage_error
     when "gen-cr"    then return gen_cr(args[1..])
+    when "text-worker"
+      Corpus.serve
+      return 0
     end
     unwrapped = false
     names = [] of String
@@ -65,21 +72,22 @@ module Docv::CLI
         names << arg
       end
     end
+    Corpus.worker = Process.executable_path.try { |executable| [executable, "text-worker"] }
     tty = Term::Tty.new
     return usage_error if names.size > 2 || (names.empty? && !tty.tty?)
     config = configuration || return 1
     wrap = config.start_wrapped? && !unwrapped
     manpath = Manpath.default(Dir.current)
     if names.empty?
-      viewer = Viewer.new(wrap: wrap, manpath: manpath, tty: tty, options: config.options, theme: config.theme)
-      viewer.perform(Viewer::Action::OpenPage)
+      viewer = Viewer.new(wrap: wrap, manpath: manpath, tty: tty, options: config.options, theme: config.theme,
+        settings: config.viewer)
       viewer.run
       return 0
     end
     path = resolve(names, manpath) || return 1
     document = Docv.load(path, config.options(STDIN))
     if tty.tty?
-      Viewer.new(document, path, wrap, manpath, tty, config.options, config.theme).run
+      Viewer.new(document, path, wrap, manpath, tty, config.options, config.theme, settings: config.viewer).run
     else
       width = ENV["MANWIDTH"]?.try(&.to_i?) || 80
       Layout.new(document).lines(width, wrap).each { |line| STDOUT.puts line.text.rstrip }

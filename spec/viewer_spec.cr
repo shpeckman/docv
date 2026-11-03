@@ -66,22 +66,26 @@ describe Docv::Viewer::Frame do
   frame = Docv::Viewer::Frame.new(10, 20)
   wide = Docv::Viewer::Frame.new(10, 60)
 
-  it "places the search bar between the title and the close mark" do
-    wide.bar_start.should eq 18
-    wide.bar_end.should eq 56
-    wide.bar?.should be_true
+  it "keeps the title row for the name, the page's heading and the close mark" do
+    wide.region(0, 0).should eq Docv::Viewer::Frame::Region::Name
+    wide.region(0, 14).should eq Docv::Viewer::Frame::Region::Name
+    wide.region(0, 15).should eq Docv::Viewer::Frame::Region::Title
+    wide.heading_bounds.should eq({17, 56})
+    wide.heading_col(10).should eq 25
+    wide.heading_col(50).should eq 17
     wide.region(0, 17).should eq Docv::Viewer::Frame::Region::Title
-    wide.region(0, 18).should eq Docv::Viewer::Frame::Region::Bar
-    wide.region(0, 56).should eq Docv::Viewer::Frame::Region::Bar
+    wide.region(0, 30).should eq Docv::Viewer::Frame::Region::Title
     wide.region(0, 58).should eq Docv::Viewer::Frame::Region::Close
-    frame.bar?.should be_false
-    screen = Docv::Screen.new(10, 60)
-    field = Docv::Styles.id(Docv::Style.new(bg: Docv::Color.palette(4)))
-    wide.bar(screen, field).should eq({20, 55})
-    screen[0, 18].ch.should eq Docv::Viewer::Frame::BAR_LEFT
-    Docv::Styles[screen[0, 18].style].fg.should eq Docv::Color.palette(4)
-    screen[0, 56].ch.should eq Docv::Viewer::Frame::BAR_RIGHT
-    screen[0, 30].style.should eq field
+  end
+
+  it "starts the content after a regular dock" do
+    docked = Docv::Viewer::Frame.new(10, 60, 20)
+    {docked.inner, docked.left}.should eq({20, 21})
+    docked.inner_cols.should eq 39
+    docked.region(3, 10).should eq Docv::Viewer::Frame::Region::Border
+    docked.region(3, 20).should eq Docv::Viewer::Frame::Region::Content
+    docked.region(8, 10).should eq Docv::Viewer::Frame::Region::Border
+    docked.region(8, 20).should eq Docv::Viewer::Frame::Region::HorizontalBar
   end
 
   it "places content between the title line and the scrollbar, padded on both sides" do
@@ -90,7 +94,7 @@ describe Docv::Viewer::Frame do
     frame.content_cols.should eq 17
     frame.right.should eq 19
     frame.status_row.should eq 9
-    frame.region(0, 5).should eq Docv::Viewer::Frame::Region::Title
+    frame.region(0, 5).should eq Docv::Viewer::Frame::Region::Name
     frame.region(0, 18).should eq Docv::Viewer::Frame::Region::Close
     frame.region(1, 5).should eq Docv::Viewer::Frame::Region::Border
     frame.region(2, 0).should eq Docv::Viewer::Frame::Region::Content
@@ -131,28 +135,20 @@ describe Docv::Viewer::Frame do
     screen[3, 18].ch.should eq '╴'
     screen[3, 19].should eq Docv::Cell::BLANK
   end
-
-  it "draws a titled box" do
-    screen = Docv::Screen.new(10, 20)
-    frame.box(screen, 2, 2, 4, 12, "Help", 1_u16, 2_u16, 3_u16)
-    screen[2, 2].ch.should eq '╭'
-    screen[2, 5].ch.should eq 'H'
-    screen[2, 5].style.should eq 3_u16
-    screen[3, 4].style.should eq 2_u16
-    screen[5, 13].ch.should eq '╯'
-  end
 end
 
 describe Docv::Viewer::Help do
   help = Docv::Viewer::Help.new(Docv::Viewer::Bindings.new, Docv::Viewer::FieldBindings.new)
 
-  it "lists every bound action with its keys, the search bar keys and the mouse" do
+  it "lists every bound action with its keys, the search bar and panel keys and the mouse" do
     help.lines.find! { |line| line.text == "line down" }.keys.should eq "j ↓ Ctrl-n Ctrl-e"
     help.lines.find! { |line| line.text == "this help" }.keys.should eq "h"
     help.lines.find! { |line| line.text == "previous match or page" }.keys.should eq "↑ Ctrl-p Shift-Tab"
-    help.lines.select(&.heading).map(&.keys).should eq ["Keys", "Search bar", "Mouse"]
+    help.lines.find! { |line| line.text == "back to the page" }.keys.should eq "Esc"
+    help.lines.select(&.heading).map(&.keys).should eq ["Keys", "Search field", "Tree", "Mouse"]
     Docv::Viewer::ACTION_HELP.keys.should eq Docv::Viewer::Action.values
     Docv::Viewer::FIELD_HELP.keys.should eq Docv::Viewer::FieldAction.values
+    Docv::Viewer::TREE_HELP.keys.should eq Docv::Viewer::TreeAction.values
   end
 
   it "names keys with their modifiers" do
@@ -161,14 +157,42 @@ describe Docv::Viewer::Help do
     Docv::Viewer::Help.key_name(Docv::Term::Mods::None, Docv::Term::Key::F1 + 4).should eq "F5"
   end
 
-  it "scrolls within the box" do
+  it "scrolls within the page area" do
     small = Docv::Viewer::Frame.new(12, 80)
     scroller = Docv::Viewer::Help.new(Docv::Viewer::Bindings.new, Docv::Viewer::FieldBindings.new)
-    scroller.rows(small).should eq 6
+    scroller.rows(small).should eq 8
     scroller.scroll(1000, small)
-    scroller.top.should eq scroller.lines.size - 6
+    scroller.top.should eq scroller.lines.size - 8
+    scroller.max_top(small).should eq scroller.top
     scroller.scroll(-1000, small)
     scroller.top.should eq 0
+  end
+
+  it "scrolls sideways within its widest line" do
+    narrow = Docv::Viewer::Frame.new(30, 30)
+    scroller = Docv::Viewer::Help.new(Docv::Viewer::Bindings.new, Docv::Viewer::FieldBindings.new)
+    scroller.width.should be > narrow.content_cols
+    scroller.scroll_x(1000, narrow)
+    scroller.left.should eq scroller.width - narrow.content_cols
+    scroller.scroll_x(-3, narrow)
+    scroller.left.should eq scroller.width - narrow.content_cols - 3
+    screen = Docv::Screen.new(30, 30)
+    styles = Docv::Theme.new.styles(Docv::Palette.new(true), Docv::ColorDepth::TrueColor)
+    scroller.scroll_x(-1000, narrow)
+    scroller.scroll_x(2, narrow)
+    scroller.draw(screen, narrow, styles)
+    screen[Docv::Viewer::Frame::TOP, 1].ch.should eq 'y'
+    screen[Docv::Viewer::Frame::TOP + 1, 1].ch.should eq '↓'
+  end
+
+  it "draws in the page area, after a regular dock" do
+    docked = Docv::Viewer::Frame.new(30, 100, 20)
+    screen = Docv::Screen.new(30, 100)
+    styles = Docv::Theme.new.styles(Docv::Palette.new(true), Docv::ColorDepth::TrueColor)
+    help.draw(screen, docked, styles)
+    screen[Docv::Viewer::Frame::TOP, 21].ch.should eq 'K'
+    screen[Docv::Viewer::Frame::TOP + 1, 21].ch.should eq 'j'
+    screen[Docv::Viewer::Frame::TOP, 20].ch.should eq ' '
   end
 end
 
@@ -223,8 +247,32 @@ describe Docv::Viewer::Picker do
     picker.top.should eq 2
     picker.scroll_to(0, 2)
     picker.selected.should eq 1
-    picker.select_row(0).should eq items[0]
-    picker.select_row(5).should be_nil
+    picker.select_row(0).should be_true
+    picker.current.should eq items[0]
+    picker.select_row(5).should be_false
+  end
+
+  it "scrolls sideways within the widest row" do
+    picker = Docv::Viewer::Picker.new(items)
+    picker.width(false).should eq 9
+    picker.width(true).should eq 9 + 2 + "formatted output conversion".size
+    picker.scroll_x(100, 6, false)
+    picker.left.should eq 5
+    picker.scroll_x(-100, 12, false)
+    picker.left.should eq 0
+  end
+
+  it "draws hit counts at the right edge" do
+    picker = Docv::Viewer::Picker.new(items)
+    picker.hits = [0, 7, 0, 12]
+    screen = Docv::Screen.new(4, 30)
+    styles = Docv::Theme.new.styles(Docv::Palette.new(true), Docv::ColorDepth::TrueColor)
+    picker.draw(screen, 0, 0, 4, 30, styles, details: false)
+    screen[1, 28].ch.should eq '7'
+    screen[3, 27].ch.should eq '1'
+    screen[0, 28].ch.should eq ' '
+    picker.hits = nil
+    picker.hits.should be_nil
   end
 
   it "keeps a moved selection when the items change" do
@@ -232,6 +280,209 @@ describe Docv::Viewer::Picker do
     picker.move(2, 4)
     picker.items = items.reverse
     picker.current.should eq items[2]
+  end
+end
+
+describe Docv::Viewer::Dock do
+  frame = Docv::Viewer::Frame.new(24, 100)
+
+  it "fits its width to the screen and moves the page only when regular and open" do
+    dock = Docv::Viewer::Dock.new(30)
+    dock.offset(100).should eq 0
+    dock.open = true
+    dock.offset(100).should eq 30
+    dock.span(40).should eq 20
+    dock.span(30).should eq Docv::Viewer::Dock::MIN_WIDTH
+    Docv::Viewer::Dock.new(30, Docv::DockStyle::Overlay, true).offset(100).should eq 0
+    dock.width = 3
+    dock.width.should eq Docv::Viewer::Dock::MIN_WIDTH
+  end
+
+  it "tells the field, the tree and the divider apart" do
+    dock = Docv::Viewer::Dock.new(30, open: true)
+    top = Docv::Viewer::Frame::TOP
+    dock.part(frame, top, 5).should eq Docv::Viewer::Dock::Part::Field
+    dock.part(frame, top + 1, 5).should eq Docv::Viewer::Dock::Part::Tree
+    dock.part(frame, top + 1, 29).should eq Docv::Viewer::Dock::Part::Divider
+    dock.part(frame, top + 1, 30).should be_nil
+    dock.part(frame, 0, 5).should be_nil
+    dock.tree_row(frame, top + 1).should eq 0
+    dock.tree_row(frame, top).should be_nil
+    dock.tree_cols(frame).should eq 29
+  end
+
+  it "shows the group's tree, or every page during a manual search" do
+    dock = Docv::Viewer::Dock.new
+    group = Docv::Viewer::Picker.new([Docv::Viewer::Picker::Item.new("ls(1)", key: "ls")])
+    pages = Docv::Viewer::Picker.new([Docv::Viewer::Picker::Item.new("cat(1)", key: "cat")])
+    dock.group = group
+    dock.pages = pages
+    dock.tree.should be group
+    dock.field.insert("/c")
+    dock.tree.should be pages
+  end
+
+  it "reads a manual search from a leading slash" do
+    dock = Docv::Viewer::Dock.new
+    dock.field.insert("/printf")
+    dock.manual?.should be_true
+    dock.query.should eq "printf"
+    dock.field.clear
+    dock.field.insert("sort")
+    dock.manual?.should be_false
+    dock.query.should eq "sort"
+  end
+
+  it "draws the field, the divider with its junctions and the tree" do
+    dock = Docv::Viewer::Dock.new(30, open: true)
+    dock.group = Docv::Viewer::Picker.new([Docv::Viewer::Picker::Item.new("ls(1)", key: "ls")], nested: true)
+    screen = Docv::Screen.new(24, 100)
+    styles = Docv::Theme.new.styles(Docv::Palette.new(true), Docv::ColorDepth::TrueColor)
+    dock.draw(screen, frame, styles, false, nil, false)
+    top = Docv::Viewer::Frame::TOP
+    screen[top, 0].ch.should eq ' '
+    screen[top, 1].ch.should eq Docv::Viewer::Dock::FIELD_LEFT
+    screen[top, 3].ch.should eq 'f'
+    screen[top, 27].ch.should eq Docv::Viewer::Dock::FIELD_RIGHT
+    screen[top - 1, 29].ch.should eq '┬'
+    screen[frame.bottom, 29].ch.should eq '┴'
+    screen[top + 1, 29].ch.should eq '│'
+    screen[top + 1, 3].ch.should eq 'l'
+  end
+end
+
+describe Docv::Viewer::Picker::Outline do
+  names = %w(abrt abrt-cli abrt-dump-oops abrt-dump-xorg abrt-dump-journal-core git git-add git-commit
+    systemd.unit systemd.service sd_bus_open ls lsblk)
+
+  pages = names.map_with_index do |name, index|
+    Docv::Viewer::Picker::Item.new("#{name}(1)", "", index, key: name)
+  end
+
+  labels = ->(picker : Docv::Viewer::Picker) do
+    outline = picker.outline.not_nil!
+    picker.rows.map do |id|
+      node = outline.nodes[id]
+      text = node.group? ? "#{node.prefix}/" : picker.items[node.item].label
+      "#{"  " * node.depth}#{text}"
+    end
+  end
+
+  it "splits keys into tokens at separator runs" do
+    tokens = [] of String
+    Docv::Viewer::Picker::Outline.each_token("File::Spec-x") { |stop, _| tokens << "File::Spec-x"[0, stop] }
+    tokens.should eq ["File", "File::Spec", "File::Spec-x"]
+  end
+
+  it "folds names sharing a prefix of at least MIN_GROUP items" do
+    picker = Docv::Viewer::Picker.new(pages, nested: true)
+    labels.call(picker).should eq ["abrt/", "git/", "ls(1)", "lsblk(1)", "sd_bus_open(1)", "systemd.service(1)",
+                                   "systemd.unit(1)"]
+  end
+
+  it "unfolds and folds a group, and steps into and out of it" do
+    picker = Docv::Viewer::Picker.new(pages, nested: true)
+    picker.group?.should be_true
+    picker.expand(20)
+    labels.call(picker).first(4).should eq ["abrt/", "  abrt(1)", "  abrt-cli(1)", "  abrt-dump/"]
+    picker.expand(20)
+    picker.current.should eq pages[0]
+    picker.move(2, 20)
+    picker.expand(20)
+    labels.call(picker)[4..6].should eq ["    abrt-dump-journal-core(1)", "    abrt-dump-oops(1)",
+                                         "    abrt-dump-xorg(1)"]
+    picker.move(1, 20)
+    picker.collapse(20)
+    picker.selected.should eq 3
+    picker.collapse(20)
+    picker.collapse(20)
+    picker.collapse(20)
+    picker.selected.should eq 0
+    picker.rows.size.should eq 7
+    picker.toggle(20)
+    picker.rows.size.should eq 10
+  end
+
+  it "ranks groups by their best match and opens them while querying" do
+    picker = Docv::Viewer::Picker.new(pages, nested: true)
+    picker.query = "oops"
+    labels.call(picker).should eq ["abrt/", "  abrt-dump/", "    abrt-dump-oops(1)"]
+    picker.results.size.should eq 1
+    picker.toggle(20)
+    labels.call(picker).should eq ["abrt/"]
+    picker.query = "git"
+    labels.call(picker).first.should eq "git/"
+  end
+
+  it "keeps groups apart by item group" do
+    grouped = %w(a-x a-y a-z a-w).map_with_index do |name, index|
+      Docv::Viewer::Picker::Item.new(name, "", index, group: index % 2, key: name)
+    end
+    picker = Docv::Viewer::Picker.new(grouped, nested: true)
+    labels.call(picker).should eq ["a-x", "a-z", "a-w", "a-y"]
+  end
+
+  it "names rows relative to their group" do
+    outline = Docv::Viewer::Picker::Outline.new(pages)
+    abrt = outline.nodes[outline.roots[0]]
+    abrt.children.map { |id| outline.nodes[id].text }.should eq ["abrt(1)", "cli(1)", "dump"]
+    dump = outline.nodes[abrt.children[2]]
+    {dump.prefix, dump.skip}.should eq({"abrt-dump", 5})
+    dump.children.map { |id| outline.nodes[id].text }.should eq ["journal-core(1)", "oops(1)", "xorg(1)"]
+    Docv::Viewer::Picker::Outline.relative("File::Spec::Unix(3pm)", "File::Spec").should eq({"Unix(3pm)", 12})
+    Docv::Viewer::Picker::Outline.relative("ls(1)", "lsblk").should eq({"ls(1)", 0})
+    Docv::Viewer::Picker::Outline.relative("abrt-dump(1)", "abrt-dump", "abrt").should eq({"dump(1)", 5})
+    Docv::Viewer::Picker::Outline.relative("abrt(1)", "abrt", "").should eq({"abrt(1)", 0})
+  end
+
+  it "lists the items under a group" do
+    outline = Docv::Viewer::Picker::Outline.new(pages)
+    outline.items(outline.roots[0]).should eq [0, 1, 4, 2, 3]
+  end
+
+  it "reveals an item by target, unfolding the groups around it" do
+    picker = Docv::Viewer::Picker.new(pages, nested: true)
+    picker.reveal(3, 20).should be_true
+    picker.current.should eq pages[3]
+    labels.call(picker)[picker.selected].should eq "    abrt-dump-xorg(1)"
+    picker.reveal(99, 20).should be_false
+  end
+
+  it "unfolds groups level by level while they fit" do
+    picker = Docv::Viewer::Picker.new(pages, nested: true)
+    picker.unfold(9)
+    picker.rows.size.should eq 7
+    picker.unfold(10)
+    labels.call(picker).first(4).should eq ["abrt/", "  abrt(1)", "  abrt-cli(1)", "  abrt-dump/"]
+    picker.rows.size.should eq 10
+    roomy = Docv::Viewer::Picker.new(pages, nested: true)
+    roomy.unfold(100)
+    roomy.rows.size.should eq 16
+    picker.query = "oops"
+    picker.unfold(100)
+    picker.rows.size.should eq 3
+  end
+
+  it "counts the items with hits in each group" do
+    picker = Docv::Viewer::Picker.new(pages, nested: true)
+    counts = Array(Int32).new(pages.size, 0)
+    counts[2] = 4
+    counts[3] = 1
+    picker.hits = counts
+    screen = Docv::Screen.new(10, 40)
+    styles = Docv::Theme.new.styles(Docv::Palette.new(true), Docv::ColorDepth::TrueColor)
+    picker.draw(screen, 0, 0, 10, 40, styles, details: false)
+    screen[0, 38].ch.should eq '2'
+    screen[1, 38].ch.should eq ' '
+  end
+
+  it "keeps open groups and the selection when the items are redescribed" do
+    picker = Docv::Viewer::Picker.new(pages, nested: true)
+    picker.move(1, 20)
+    picker.toggle(20)
+    picker.items = pages.map(&.copy_with(detail: "described"))
+    picker.selected.should eq 1
+    labels.call(picker)[2].should eq "  git(1)"
   end
 end
 

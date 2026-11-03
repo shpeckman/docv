@@ -120,6 +120,15 @@ describe Docv::Term::Tty do
     reader.gets_to_end.should eq "\e]52;c;!\e\\\e]52;c;aMOp\e\\"
   end
 
+  it "shapes the pointer with OSC 22" do
+    reader, writer = IO.pipe
+    tty = Docv::Term::Tty.new(reader, writer)
+    tty.pointer("ew-resize")
+    tty.pointer("")
+    writer.close
+    reader.gets_to_end.should eq "\e]22;ew-resize\e\\\e]22;\e\\"
+  end
+
   it "queries the theme colors with OSC 21" do
     Docv::Term::Sequences::COLORS_QUERY.should start_with("\e]21;foreground=?;background=?;0=?;")
     Docv::Term::Sequences::COLORS_QUERY.should end_with(";15=?\e\\")

@@ -40,7 +40,10 @@ module Docv::Term
     CLIPBOARD       = "\e]52;c;"
     # OSC 8 hyperlink: the start before the URI and the string terminator
     # after it; an empty URI ends the link.
-    HYPERLINK  = "\e]8;;"
+    HYPERLINK = "\e]8;;"
+    # OSC 22 pointer shape: the start before a CSS cursor name and the
+    # string terminator after it; an empty name resets the shape.
+    POINTER    = "\e]22;"
     TERMINATOR = "\e\\"
     SYNC_BEGIN = "\e[?2026h"
     SYNC_END   = "\e[?2026l"
@@ -126,9 +129,15 @@ module Docv::Term
       write("#{Sequences::CLIPBOARD_CLEAR}#{Sequences::CLIPBOARD}#{Base64.strict_encode(text)}\e\\")
     end
 
-    # Undoes `enter` in reverse order.
+    # Sets the mouse pointer to the CSS cursor *shape* (`pointer`, `text`,
+    # `ew-resize` ...; OSC 22); an empty shape resets it.
+    def pointer(shape : String) : Nil
+      write("#{Sequences::POINTER}#{shape}#{Sequences::TERMINATOR}")
+    end
+
+    # Undoes `enter` in reverse order, resetting the pointer shape.
     def leave : Nil
-      write(Sequences::RESET + Sequences::NOTIFY_OFF + Sequences::MOUSE_OFF + Sequences::KEYBOARD_POP +
+      write(Sequences::POINTER + Sequences::TERMINATOR + Sequences::RESET + Sequences::NOTIFY_OFF + Sequences::MOUSE_OFF + Sequences::KEYBOARD_POP +
             Sequences::CURSOR_SHOW + Sequences::ALT_SCREEN_OFF)
       restore
     end

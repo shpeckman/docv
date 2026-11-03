@@ -72,6 +72,7 @@ module Docv
       Selection
       Hover
       Mark
+      Hit
       Popup
     end
 
@@ -159,7 +160,7 @@ module Docv
       Role::Link              => "underline magenta",
       Role::LinkFocus         => "reverse magenta",
       Role::TextSelection     => "on blue-50",
-      Role::PageHeader        => "foreground-40",
+      Role::PageHeader        => "bold",
       Role::Title             => "bold",
       Role::Version           => "foreground-50",
       Role::Close             => "red",
@@ -178,6 +179,7 @@ module Docv
       Role::Selection         => "on background+22",
       Role::Hover             => "on background+10",
       Role::Mark              => "bold underline yellow",
+      Role::Hit               => "bold green",
       Role::Popup             => "on background+6",
     }
 
@@ -211,7 +213,7 @@ module Docv
       Role::Link              => "underline",
       Role::LinkFocus         => "reverse",
       Role::TextSelection     => "reverse",
-      Role::PageHeader        => "dim",
+      Role::PageHeader        => "bold",
       Role::Title             => "bold",
       Role::Version           => "dim",
       Role::Close             => "",
@@ -230,6 +232,7 @@ module Docv
       Role::Selection         => "reverse",
       Role::Hover             => "bold",
       Role::Mark              => "bold underline",
+      Role::Hit               => "bold",
       Role::Popup             => "",
     }
 

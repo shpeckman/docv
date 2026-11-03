@@ -24,6 +24,20 @@ module Docv
   # with tree-sitter grammars (`Syntax`).
   record Options, unsafe : Bool = false, stdin : IO? = nil, highlight : Bool = false
 
+  # How the viewer's dock sits beside the page: `Regular` narrows the page
+  # to make room, `Overlay` draws over the page's left edge.
+  enum DockStyle
+    Regular
+    Overlay
+  end
+
+  # Viewer settings from `[viewer]`: the *dock* style, its width in columns
+  # (*dock_width*), whether it is open at start (*dock_open*), and the
+  # threads that read and search the text of all pages (*search_threads*;
+  # 0 is one less than the processor count).
+  record ViewerSettings, dock : DockStyle = DockStyle::Regular, dock_width : Int32 = 36,
+    dock_open : Bool = false, search_threads : Int32 = 0
+
   # The user configuration in `$XDG_CONFIG_HOME/docv/config.ini`
   # (`~/.config/docv/config.ini` when the variable is unset or not an
   # absolute path). `Config.load` writes a commented default file when none
@@ -42,7 +56,14 @@ module Docv
     }
 
     # Known keys per section.
-    KEYS = {"roff" => Set{"unsafe"}, "viewer" => Set{"start-wrapped", "syntax-highlighting"}, "colors" => Theme::KEYS.keys.to_set}
+    KEYS = {
+      "roff"   => Set{"unsafe"},
+      "viewer" => Set{"start-wrapped", "syntax-highlighting", "dock", "dock-width", "dock-open", "search-threads"},
+      "colors" => Theme::KEYS.keys.to_set,
+    }
+
+    # Allowed ranges of the integer keys.
+    RANGES = {"dock-width" => 16..400, "search-threads" => 0..1024}
 
     # The `[colors]` explanation in `DEFAULT`, followed there by every role
     # with its default, commented out.
@@ -98,6 +119,19 @@ module Docv
       ; where nvim and helix install them, or in $XDG_DATA_HOME/docv/grammars
       ; and $XDG_DATA_HOME/docv/queries/<language>/.
       syntax-highlighting = true
+      ; The dock left of the page holds the search field and the tree of
+      ; pages (p opens and closes it). regular: the page narrows to make
+      ; room; overlay: the dock covers the left of the page.
+      dock = regular
+      ; Width of the dock in columns; dragging its right edge changes it
+      ; until the viewer quits.
+      dock-width = 36
+      ; Open the dock at start.
+      dock-open = false
+      ; Threads that read the text of every page and search it, for the
+      ; hit counts in the tree while finding in the page. 0: one less than
+      ; the number of processors.
+      search-threads = 0
 
       INI
 
@@ -111,9 +145,12 @@ module Docv
     getter? syntax_highlighting : Bool
     # Role styles from `[colors]`.
     getter colors : Hash(Theme::Role, Theme::Spec)
+    # The dock and search settings of the viewer.
+    getter viewer : ViewerSettings
 
     def initialize(@path : String? = nil, @unsafe : Bool = false, @colors = {} of Theme::Role => Theme::Spec,
-                   @start_wrapped : Bool = true, @syntax_highlighting : Bool = true)
+                   @start_wrapped : Bool = true, @syntax_highlighting : Bool = true,
+                   @viewer : ViewerSettings = ViewerSettings.new)
     end
 
     # The configuration directory: `$XDG_CONFIG_HOME/docv`.
@@ -162,8 +199,13 @@ module Docv
         end
         {Theme::KEYS[key], spec}
       end
+      defaults = ViewerSettings.new
+      settings = ViewerSettings.new(dock_style(viewer, defaults.dock, path),
+        integer(viewer, "dock-width", defaults.dock_width, path),
+        boolean(viewer, "dock-open", defaults.dock_open, path),
+        integer(viewer, "search-threads", defaults.search_threads, path))
       new(path, boolean(roff, "unsafe", false, path), colors, boolean(viewer, "start-wrapped", true, path),
-        boolean(viewer, "syntax-highlighting", true, path))
+        boolean(viewer, "syntax-highlighting", true, path), settings)
     end
 
     private def self.boolean(values : Hash(String, String), key : String, default : Bool, path : String?) : Bool
@@ -171,6 +213,22 @@ module Docv
       value = BOOLEANS[text.strip.downcase]?
       raise Error.new("#{path || "config"}: #{key} must be true or false, not #{text}") if value.nil?
       value
+    end
+
+    private def self.integer(values : Hash(String, String), key : String, default : Int32, path : String?) : Int32
+      text = values[key]? || return default
+      range = RANGES[key]
+      value = text.strip.to_i?
+      unless value && range.includes?(value)
+        raise Error.new("#{path || "config"}: #{key} must be a number from #{range.begin} to #{range.end}, not #{text}")
+      end
+      value
+    end
+
+    private def self.dock_style(values : Hash(String, String), default : DockStyle, path : String?) : DockStyle
+      text = values["dock"]? || return default
+      DockStyle.parse?(text.strip) ||
+        raise Error.new("#{path || "config"}: dock must be #{DockStyle.names.map(&.downcase).join(" or ")}, not #{text}")
     end
 
     # The viewer theme: the defaults with the `[colors]` overrides.

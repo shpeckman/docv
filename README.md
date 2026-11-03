@@ -5,7 +5,7 @@ Parses manual pages and Markdown documents and shows them in a terminal viewer. 
 
 - **Parser.** A roff interpreter with the man(7) and mdoc(7) macro packages and the tbl(1) preprocessor built in natively. It reads plain and gzip page files and follows `.so` includes. Markdown files (CommonMark with the GitHub extensions) go through markd into the same model (see [Markdown](#markdown)). The result is a document model of blocks and styled spans, with link targets and heading anchors.
 - **Layout.** Turns a document into lines of cells. The *wrapped* layout fills paragraphs to the width. The *unwrapped* layout puts each paragraph on one line. Unfilled text and tables never wrap. Lines carry their links: the span links of a document, and cross-references such as `ls(1)` detected in the text.
-- **Viewer.** Uses a cell-grid renderer that diffs the screen row by row. Keyboard input uses the kitty protocol, with all enhancements pushed and legacy encodings understood. Mouse input uses SGR-pixel reports. The viewer also handles in-band resize, focus, visibility and color-scheme notifications. The screen is a title row (`ＤＯＣＶ` and the version, the always-visible search bar, and a 🞪 close mark), a line, the page with a draggable vertical scrollbar in the last column (only its thumb is drawn), a horizontal scrollbar line (thumb `━`, track `─`) and a status row. The page header of a manual page (`NAME(1)  manual  NAME(1)`) stays pinned at the top above a rule, and the page footer (`source  date  NAME(1)`) at the bottom below one, while the body scrolls between them, vertically and horizontally. The search bar fuzzy-finds in the displayed page, highlighting matches in place, or, after a leading `/`, lists all pages of the manual and the Markdown documents of the project, the project's first. It also has links with back navigation (cross-references, files, heading anchors; URLs as OSC 8 hyperlinks), mouse text selection copied to the clipboard, and a floating help (`h`) listing the keys as they are bound. Everything is colored by role from the terminal's own theme, which it queries with OSC 21 (see [Colors](#colors)).
+- **Viewer.** Uses a cell-grid renderer that diffs the screen row by row. Keyboard input uses the kitty protocol, with all enhancements pushed and legacy encodings understood. Mouse input uses SGR-pixel reports. The viewer also handles in-band resize, focus, visibility and color-scheme notifications. The screen is a title row (`ＤＯＣＶ` and the version, which opens the help on a click, the page's heading centered, and a 🞪 close mark), a line, a dock on the left that toggles (`p`), the page with a draggable vertical scrollbar in the last column (only its thumb is drawn), a horizontal scrollbar line (thumb `━`, track `─`) and a status row. The heading of a manual page is its manual and reference (`ABRT Manual - ABRT(1)`; pointing at it shows the footer's source and date beside it, dimmed), of a Markdown document its file name and first heading (`README.md - docv`); the page itself scrolls under it, vertically and horizontally. The dock holds the search field and a tree of the current page's group (or of the current folder's pages and Markdown documents), names that share a prefix folded into nested groups and the current page selected. The field fuzzy-finds in the displayed page, highlighting matches in place, while the tree counts the matching lines of each page; after a leading `/` the tree holds every page of the manual and ranks them instead. The mouse pointer takes the shape of what it is over (OSC 22). It also has links with back navigation (cross-references, files, heading anchors; URLs as OSC 8 hyperlinks), mouse text selection copied to the clipboard, and a help (`h`, or a click on `ＤＯＣＶ`) listing the keys as they are bound, shown in place of the page with `HELP` as the title row's heading. Everything is colored by role from the terminal's own theme, which it queries with OSC 21 (see [Colors](#colors)).
 
 ## Requirements
 
@@ -42,7 +42,7 @@ The manual pages are `man/man1/docv.1` (the command, its keys, mouse, search pat
     docv path-list
     docv gen-cr [-o dir] [shard]
 
-A `file` is a manual page, or a Markdown document when its name ends in `.md`, `.markdown`, `.mdown`, `.mkd` or `.mkdn` (optionally followed by `.gz`): `docv README.md`. Without a page, the viewer opens on an empty page with the page search focused (this needs a terminal). The viewer starts in the wrapped layout unless `[viewer] start-wrapped = false` is set in `config.ini`; `-u` (`--unwrapped`) starts in the unwrapped layout either way. When standard output is not a terminal, the page is printed as plain text at `MANWIDTH` columns (default 80).
+A `file` is a manual page, or a Markdown document when its name ends in `.md`, `.markdown`, `.mdown`, `.mkd` or `.mkdn` (optionally followed by `.gz`): `docv README.md`. Without a page, the viewer opens on an empty page with the dock closed and a hint in the status row; `p` opens the dock on the pages and documents of the current folder's project, `/` searches every page (this needs a terminal). The viewer starts in the wrapped layout unless `[viewer] start-wrapped = false` is set in `config.ini`; `-u` (`--unwrapped`) starts in the unwrapped layout either way. When standard output is not a terminal, the page is printed as plain text at `MANWIDTH` columns (default 80).
 
 ### Search path
 
@@ -91,6 +91,10 @@ unsafe = false
 [viewer]
 start-wrapped = true
 syntax-highlighting = true
+dock = regular
+dock-width = 36
+dock-open = false
+search-threads = 0
 ```
 
 | Key                     | Default | Meaning                                                                    |
@@ -98,6 +102,10 @@ syntax-highlighting = true
 | `roff.unsafe`           | `false` | run the requests that execute commands or access files (see [roff coverage](#roff-coverage)); booleans accept `true`/`false`, `yes`/`no`, `on`/`off`, `1`/`0` |
 | `viewer.start-wrapped`  | `true`  | start in the wrapped layout; `false` starts unwrapped (`w` switches, `-u` starts unwrapped either way) |
 | `viewer.syntax-highlighting` | `true` | color code examples by their syntax (see [Syntax highlighting](#syntax-highlighting)) |
+| `viewer.dock`           | `regular` | `regular`: the page narrows to make room for the dock; `overlay`: the dock covers the left of the page |
+| `viewer.dock-width`     | `36`    | width of the dock in columns (16 to 400); dragging its right edge changes it until the viewer quits |
+| `viewer.dock-open`      | `false` | open the dock at start                                                     |
+| `viewer.search-threads` | `0`     | processes that read the text of every page and threads that search it (see [Dock](#dock)); `0` is one less than the number of processors |
 
 ### Colors
 
@@ -151,26 +159,27 @@ On entering, the viewer asks the terminal for its theme with OSC 21 (kitty's col
 | `colors.link`                    | `underline magenta`       | links: cross-references such as `ls(1)`, files, headings, URLs |
 | `colors.link-focus`              | `reverse magenta`         | the focused link |
 | `colors.text-selection`          | `on blue-50`              | text selected with the mouse |
-| `colors.page-header`             | `foreground-40`           | the pinned page header and footer |
+| `colors.page-header`             | `bold`                    | the page's heading in the title row (its source and date beside it take `detail`) |
 | `colors.title`                   | `bold`                    | `ＤＯＣＶ` |
 | `colors.version`                 | `foreground-50`           | the version after the title |
 | `colors.close`                   | `red`                     | the 🞪 close mark |
-| `colors.border`                  | `foreground-60`           | the line under the title row, the horizontal scrollbar track, box edges |
+| `colors.border`                  | `foreground-60`           | the line under the title row, the horizontal scrollbar track, the dock's divider |
 | `colors.thumb`                   | `bold blue`               | scrollbar thumbs |
 | `colors.rule`                    | `foreground-70`           | the rules under the header and above the footer, horizontal rules in documents |
-| `colors.field`                   | `on background+12`        | the search bar; its `◖` `◗` ends take its background as their color |
+| `colors.field`                   | `on background+12`        | the search field; its `◖` `◗` ends take its background as their color |
 | `colors.prompt`                  | `bold blue`               | the leading `/` of a page search |
-| `colors.placeholder`             | `foreground-50`           | the hint in the empty search bar |
+| `colors.placeholder`             | `foreground-50`           | the hint in the empty search field |
 | `colors.cursor`                  | `reverse`                 | the input cursor |
 | `colors.message`                 | `yellow`                  | messages such as `Copied 29 characters` |
 | `colors.status`                  | `foreground-30`           | status row text |
 | `colors.status-separator`        | `foreground-60`           | the `│` between status parts |
-| `colors.name`                    | `bold cyan`               | page and document names in the page search |
-| `colors.detail`                  | `foreground-35`           | descriptions and section names in the lists |
-| `colors.selection`               | `on background+22`        | the selected listed page; the line of the selected match in the page |
-| `colors.hover`                   | `on background+10`        | the listed page under the pointer |
+| `colors.name`                    | `bold cyan`               | page and document names in the dock's tree |
+| `colors.detail`                  | `foreground-35`           | descriptions in the dock's tree |
+| `colors.selection`               | `on background+22`        | the selected row of the tree; the line of the selected match in the page |
+| `colors.hover`                   | `on background+10`        | the row of the tree under the pointer |
 | `colors.mark`                    | `bold underline yellow`   | fuzzy-matched characters, in the list and in the page |
-| `colors.popup`                   | `on background+6`         | the help box (its edges in `border`, its keys in `name`) |
+| `colors.hit`                     | `bold green`              | pages in the dock's tree with lines the search in the page matches, and their counts |
+| `colors.popup`                   | `on background+6`         | the overlay dock |
 
 ### Keys
 
@@ -186,40 +195,55 @@ On entering, the viewer asks the terminal for its theme with OSC 21 (kitty's col
 | `H` / `L`                              | scroll left / right half a screen        |
 | `0` / `$`                              | line start / line end                    |
 | `w`                                    | toggle wrapped and unwrapped layout      |
-| `f` `t`                                | focus the search bar: find in the page   |
-| `/` `o`                                | focus the search bar with `/` typed: find a page or project document |
+| `f` `t`                                | open the dock with the keyboard in its search field: find in the page |
+| `/` `o`                                | the same with `/` typed: find a page or project document |
+| `p`                                    | open the dock with the keyboard in its tree, or close it (see [Dock](#dock)) |
 | `Tab` / `Shift-Tab`                    | focus next / previous link               |
 | `Enter`                                | follow the focused link (see [Links](#links)) |
 | `Backspace` `Alt-←`                    | back to the previous page                |
-| `h`                                    | help: the keys as bound and the mouse gestures; `j`/`k` and the other scrolling keys scroll it, any other key or a click closes it |
+| `h`                                    | help in place of the page (`HELP` in the title row): the keys as bound and the mouse gestures; `j`/`k` and the other scrolling keys scroll it, `l`, `H`, `L`, `0`, `$` and `Shift`-wheel sideways, any other key or a click closes it |
 | `Esc`                                  | clear link focus, selection and message  |
 | `Ctrl-l`                               | redraw                                   |
 | `q` `Q` `Ctrl-c`                       | quit                                     |
 
 Bindings are looked up by physical key first (the kitty base-layout code), then by the reported key, then by the shifted symbol without its shift. That makes `G` and `$` work on any layout.
 
-The status row shows messages such as `Copied 29 characters` on the left. On the right it shows the layout, the visible lines of the body and the first column: `[wrap] │ 1-56/801 │ col 1`. While finding in the page it starts with the selected match and the match count; while listing pages it shows the result count instead, and the indexing progress while page descriptions load.
+The status row shows messages such as `Copied 29 characters` on the left. On the right it shows the layout, the visible lines of the body and the first column: `[wrap] │ 1-56/801 │ col 1`. While finding in the page it starts with the selected match and the match count, during a `/` search with the result count; then the progress of indexing (`indexing 40%`, while page descriptions load) and of reading the text of all pages (`reading pages 40%`). While the help is shown it shows the help's visible lines and first column instead of the page's.
 
-### Search bar
+### Dock
 
-The search bar sits in the title row between `◖` and `◗` and is always visible. `f`, `t` or a click on it gives it the keyboard; `/` and `o` do the same with `/` already typed.
+The dock sits left of the page: the search field between `◖` and `◗` on its first row (`find` while empty), then the tree of pages, with a divider on its right edge that joins the lines above and below (`┬`, `┴`). `p` opens it with the keyboard in the tree and closes it; `f`, `t` or a click on the field opens it with the keyboard in the field, `/` and `o` with `/` already typed. A regular dock narrows the page; an overlay dock (`dock = overlay`) covers the left of the page on the popup background. Dragging the divider resizes it. Keys the tree does not bind go to the page, so `Space`, `b`, `d` and `u` scroll the page with the keyboard in the tree.
 
-- **Text without a leading `/`** fuzzy-finds in the lines of the displayed page, in its current layout. The page stays in the frame: matched characters are highlighted where they are, the selected match's line is shaded, and the page scrolls to the best match as you type. `↓`/`↑` step through the matches, best first, and the status row shows `match 2/8`. `Enter` leaves the bar at the match; `Esc` returns to where you were.
-- **Text after a leading `/`** lists the pages of the manual and the documents of the project in the frame. It lists every page along the manual path as `name(section)` with the description from its NAME section, and every Markdown document of the project by its path from the project root (`README.md`, `docs/guide.md`) with its first heading and paragraph. The project's pages and documents come first, then the other pages; that holds while searching too, so a project match ranks above a better match elsewhere. A term matches the reference or the description and counts with the better of the two; a reference match counts half a character more than an equal description match. So `/printf 3` finds `printf(3)`, and `/list dir` finds `dir(1)` and `ls(1)` by their descriptions. Ties go to the shorter reference, then to section order. `Enter` opens the page or document, and `Backspace` in the page view comes back. Without a page on the command line the viewer starts here.
+- **The tree** shows the pages around the current one: for a page of the project, or without a page, the project's pages (`name(section)`) and Markdown documents (by their path from the project root: `README.md`, `docs/guide.md`); for another page, the outermost group it is in (all of `abrt` for `abrt-dump-oops(1)`), or the page alone when it is in none. Names that share a prefix fold into nested groups: `abrt-cli` and `abrt-dump-oops` go under `▸ abrt`, and `abrt-dump-oops` and `abrt-dump-xorg` under `▸ abrt-dump` within it. A prefix is made of whole tokens of the name, split at `-`, `_`, `.`, `:` and `/` (so `File::Spec`, `systemd.unit` and the project's `docs/guide.md` group too), and it takes at least 3 entries to make a group. Groups cross sections (`abrt(1)`, `abrt.conf(5)`) and are case-sensitive; a page named like its group (`git(1)` in `git`) is listed inside it. Rows are named relative to their group, so `abrt-action-analyze-c(1)` reads `c(1)` under `▾ analyze` under `▾ action` under `▾ abrt`; a page named like its group is named relative to the group above (`abrt(1)` in `abrt`, `dump(1)` in `abrt-dump`). The groups are folded and listed by name, except those around the current page, which is selected; the tree follows the page through links, `Backspace` and pages opened from the tree, switching to the group of a page in another one.
+- **Text without a leading `/`** fuzzy-finds in the lines of the displayed page, in its current layout. The page stays in the frame: matched characters are highlighted where they are, the selected match's line is shaded, and the page scrolls to the best match as you type. `↓`/`↑` step through the matches, best first, and the status row shows `match 2/8`. `Enter` gives the page the keyboard at the match. Meanwhile the lines that every term matches are counted for every page of the manual, and the tree shows each of its pages' count at the right of the row with the name in the `hit` color; a group shows how many of its pages have hits. The text of all pages is read once, in the background, by worker processes (`search-threads`, `docv text-worker`), with progress in the status row, and cached in `$XDG_CACHE_HOME/docv/text.bin` (about 200 MB for 27,000 pages) with each page's modification time; later sessions read only changed pages. Searching it takes threads of their own, tens of milliseconds for a full manual. Fuzzy terms are lenient, so short ones match a line of most pages.
+- **Text after a leading `/`** fills the tree with every page along the manual path and every document of the project, the project's first, and ranks them, each row with its description (from the NAME section; for a document its first heading and paragraph) after the name. A term matches the reference or the description and counts with the better of the two; a reference match counts half a character more than an equal description match. So `/printf 3` finds `printf(3)`, and `/list dir` finds `dir(1)` and `ls(1)` by their descriptions. The project's entries still come first, ahead of better matches elsewhere; ties go to the shorter reference, then to section order. Groups without a match are left out and the others are open and ranked by their best match, each level on its own; folding one keeps it folded until the text changes. `Enter` (in the field or the tree) or a click opens the selected page or document and ends the search: the field empties, the tree shows the page's group and the page gets the keyboard; `Backspace` in the page view comes back. Without a page on the command line the viewer starts here.
 
-Both are fuzzy: the characters of each space-separated term must appear in order, and matches score higher at word starts, in runs of consecutive characters and with short gaps (scored like fzf). Every term must match. Lower-case terms ignore case; a term with an upper-case letter matches exactly. Matched characters are underlined in the results.
+Both are fuzzy: the characters of each space-separated term must appear in order, and matches score higher at word starts, in runs of consecutive characters and with short gaps (scored like fzf). Every term must match. Lower-case terms ignore case; a term with an upper-case letter matches exactly. Matched characters are underlined in the results. Rows wider than the dock scroll sideways.
 
-| Keys                                   | Action                                   |
+| Search field keys                      | Action                                   |
 |----------------------------------------|------------------------------------------|
-| text                                   | type into the bar                        |
-| `Enter`                                | stay at the match / open the selected page |
-| `Esc` `Ctrl-c` `Ctrl-g`                | leave the bar and empty it (back to where finding in the page started) |
+| text                                   | type into the field                      |
+| `Enter`                                | back to the page at the match / open the selected page / fold or unfold the selected group |
+| `Esc` `Ctrl-c` `Ctrl-g` `Tab`          | to the tree                              |
 | `Backspace`                            | delete the last character                |
-| `Ctrl-u`                               | clear the bar                            |
-| `↓` `Ctrl-n` `Tab` / `↑` `Ctrl-p` `Shift-Tab` | next / previous match or page     |
-| `PgDn` / `PgUp`                        | a screenful of matches or pages down / up |
+| `Ctrl-u`                               | clear the field                          |
+| `↓` `Ctrl-n` / `↑` `Ctrl-p` `Shift-Tab` | next / previous match, or row of the tree |
+| `PgDn` / `PgUp`                        | a screenful of matches or rows down / up |
+| `→` / `←`                              | unfold the selected group or step into it / fold it or step out to its group |
+| `Shift-→` / `Shift-←`                  | scroll the tree right / left             |
 
-Page names are listed on the spot. Descriptions come from parsing the start of each page, which takes a few seconds for a full manual. That work runs in the background while the list is in use, with progress shown in the status row; the project's documents are described first. The page descriptions are cached in `$XDG_CACHE_HOME/docv/index.tsv` (`~/.cache/docv/index.tsv` when the variable is unset or not absolute). A directory whose modification time is unchanged comes from the cache; in a changed directory only files with a new modification time are read again. Document descriptions are read on every start. Quitting early keeps the descriptions done so far.
+| Tree keys                              | Action                                   |
+|----------------------------------------|------------------------------------------|
+| `j` `↓` `Ctrl-n` / `k` `↑` `Ctrl-p`    | next / previous page or group            |
+| `PgDn` / `PgUp`                        | a screenful down / up                    |
+| `g` `Home` / `G` `End`                 | first / last row                         |
+| `Enter`                                | open the page / fold or unfold the group |
+| `l` `→` / `←`                          | unfold the group or step into it / fold it or step out to its group |
+| `L` `Shift-→` / `H` `Shift-←`          | scroll the tree right / left             |
+| `Tab`                                  | to the search field                      |
+| `Esc`                                  | back to the page                         |
+
+Page names are listed on the spot. Descriptions come from parsing the start of each page, which takes a few seconds for a full manual. That work runs in the background while the dock is open, with progress shown in the status row; the project's documents are described first. The page descriptions are cached in `$XDG_CACHE_HOME/docv/index.tsv` (`~/.cache/docv/index.tsv` when the variable is unset or not absolute). A directory whose modification time is unchanged comes from the cache; in a changed directory only files with a new modification time are read again. Document descriptions are read on every start. Quitting early keeps the descriptions done so far.
 
 ### Links
 
@@ -246,13 +270,18 @@ Anchors are GitHub's: the heading in lower case, punctuation dropped, spaces as 
 | drag a scrollbar thumb (right and bottom border) | scroll                           |
 | click a scrollbar track                   | page in that direction                  |
 | click a link                              | follow it                               |
-| click the search bar                      | focus it                                |
-| hover over a listed page                  | highlight it                            |
-| click a listed page                       | open it                                 |
+| click the search field                    | give it the keyboard                    |
+| hover over a row of the tree              | highlight it                            |
+| click a page in the tree                  | open it                                 |
+| click a group in the tree                 | fold or unfold it                       |
+| wheel / `Shift`-wheel over the dock       | scroll the tree / scroll it sideways    |
+| drag the dock's right edge                | resize the dock                         |
 | back button (Aux8)                        | back to the previous page               |
+| click `ＤＯＣＶ v0.1.0` (start of the title row) | open the help                      |
+| point at the page's heading               | show the page's source and date beside it |
 | click 🞪 (end of the title row)            | quit                                    |
 
-While pages are listed, the wheel and the right border scroll the list. A selection stays highlighted until the next click or key. Selections follow the indentation: a line's indentation and trailing blanks are never highlighted, and the copied lines lose the indentation they share, so a paragraph comes out flush left and code keeps its relative indentation.
+A selection stays highlighted until the next click or key. Selections follow the indentation: a line's indentation and trailing blanks are never highlighted, and the copied lines lose the indentation they share, so a paragraph comes out flush left and code keeps its relative indentation.
 
 The arrow keys `←` and `→` do not scroll sideways; `l`, `H`, `L`, `0`, `$`, `Shift`-wheel and the horizontal scrollbar do. Code never wraps, also in the wrapped layout: code blocks (`.EX`, `.nf`, `.Bd -literal`, `.Dl`, fenced and indented Markdown code) keep their lines, and Markdown code spans are not broken across lines; the page scrolls sideways to show long ones. The clipboard write first sends an invalid payload, which clears the clipboard in terminals that append successive OSC 52 writes (kitty) and is ignored elsewhere.
 
@@ -275,7 +304,7 @@ Markdown is read as CommonMark with the GitHub extensions: tables, task lists, s
 | image                    | its description, in `image` (the file name without one)            |
 | raw HTML                 | dropped, keeping the text between the tags                         |
 
-Markdown documents have no pinned header and footer.
+Markdown documents have no page header and footer; the title row shows the file name and first heading.
 
 ## Syntax highlighting
 
@@ -362,7 +391,7 @@ fuzzy.positions("printf")                  # => [0, 1, 5]
 | `Fuzzy`                  | `Fuzzy.new(query)`, `score(text)`, `positions(text)` (character indices), `exact?` (query has upper case) |
 | `Source`                 | `Source.read(path)`: gzip inflating and Latin-1 fallback; `.so` resolution    |
 | `Options`                | `unsafe` (run `Roff::Engine::UNSAFE` requests and `\V`), `stdin` (input of `.rd`; `nil` reads nothing), `highlight` (syntax highlighting, default `false`; `Config#options` sets it from `syntax-highlighting`) |
-| `Config`                 | `Config.load(path = Config.path, create = true)`, `Config.parse(text)`, `unsafe?`, `start_wrapped?`, `syntax_highlighting?`, `colors`, `theme`, `options(stdin)`; `Config::Error` |
+| `Config`                 | `Config.load(path = Config.path, create = true)`, `Config.parse(text)`, `unsafe?`, `start_wrapped?`, `syntax_highlighting?`, `colors`, `theme`, `options(stdin)`, `viewer` (`ViewerSettings`: `dock` (`DockStyle::Regular`, `Overlay`), `dock_width`, `dock_open`, `search_threads`); `Config::Error` |
 
 The man page generator is a separate require too:
 
@@ -391,34 +420,39 @@ The viewer and its terminal layer are a separate require:
 require "docv/viewer"
 
 config = Docv::Config.load
-viewer = Docv::Viewer.new(doc, path, wrap: true, options: config.options, theme: config.theme)
+viewer = Docv::Viewer.new(doc, path, wrap: true, options: config.options, theme: config.theme,
+  settings: config.viewer)
 viewer.bindings[{Docv::Term::Mods::None, 'x'.ord}] = Docv::Viewer::Action::Quit
 viewer.field_bindings[{Docv::Term::Mods::Ctrl, 'j'.ord}] = Docv::Viewer::FieldAction::Next
 viewer.run
 
-start = Docv::Viewer.new                        # empty page
-start.perform(Docv::Viewer::Action::OpenPage)   # start in the page search
+start = Docv::Viewer.new                        # empty page, dock closed
+start.perform(Docv::Viewer::Action::OpenPage)   # start in a search of every page
 start.run
 ```
 
 | Type                     | Does                                                                      |
 |--------------------------|---------------------------------------------------------------------------|
-| `Viewer`                 | the full-screen viewer; `run`, `perform(action)`, `bindings`, `field_bindings`, `mode` (`View`, `Search`); the document is optional (empty page); `options` apply to pages opened through links and the page search (`.rd` never reads there); `theme` (default `Theme.new`) and `depth` (default `Term::Tty.color_depth`) |
+| `Viewer`                 | the full-screen viewer; `run`, `perform(action)`, `bindings`, `field_bindings`, `tree_bindings`, `focus` (`Page`, `Tree`, `Field`); the document is optional (empty page); `options` apply to pages opened through links and the page search (`.rd` never reads there); `theme` (default `Theme.new`), `depth` (default `Term::Tty.color_depth`) and `settings` (`ViewerSettings`: `dock` style, `dock_width`, `dock_open`, `search_threads`; `Config#viewer`) |
 | `Viewer::Keymap(T)`      | key table, `lookup(event)` with physical/key/shifted matching             |
 | `Viewer::Bindings`       | `Keymap(Action)` for the page view, from `DEFAULT_BINDINGS`               |
-| `Viewer::FieldBindings`  | `Keymap(FieldAction)` for the search bar, from `FIELD_BINDINGS`           |
-| `Viewer::Picker`         | fuzzy-ranked list of `Item`s (label, detail, target, role, group; lower groups first): `query=`, `results`, `current`, `move`, `scroll_to`, `marks`, `draw` (with the role style ids) |
-| `Viewer::Frame`          | title row with search bar and close mark, title line, content area with the scrollbars, status row: geometry, `bar_start`/`bar_end`, `region(row, col)` (`Title`, `Bar`, `Close`, `Border`, `Content`, `VerticalBar`, `HorizontalBar`, `Status`), `Frame.thumb`, `draw`, `title`, `bar`, `rule`, `box` |
-| `Viewer::Help`           | the floating help from the bindings (`ACTION_HELP`, `FIELD_HELP`, `Help::MOUSE`): `lines`, `scroll`, `draw`, `Help.key_name(mods, key)` |
-| `Viewer::Field`          | the search bar text: `insert`, `delete_back`, `clear`                     |
+| `Viewer::FieldBindings`  | `Keymap(FieldAction)` for the search field, from `FIELD_BINDINGS`         |
+| `Viewer::TreeBindings`   | `Keymap(TreeAction)` for the dock's tree, from `TREE_BINDINGS`            |
+| `Viewer::Picker`         | fuzzy-ranked list of `Item`s (label, detail, target, role, group; lower groups first; key): `query=`, `results`, `rows`, `current`, `group?`, `toggle`, `expand`, `collapse`, `reveal(target)`, `move`, `scroll_to`, `scroll_x`/`left`/`width` (sideways), `hits=` (counts per item, groups count items with hits), `marks`, `label_width`, `draw` (with the role style ids, a fill, labels only without details); `nested: true` folds the items into an `Outline` by their keys |
+| `Viewer::Picker::Outline` | items grouped by shared key prefixes (`SEPARATORS`, `MIN_GROUP`): `nodes` (`Node`: prefix, item, parent, depth, size, children, text and skip of the relative name), `roots`, `leaf`, `items(id)`, `Outline.each_token`, `Outline.relative` |
+| `Viewer::Dock`           | the dock: `field`, `group` and `pages` (nested `Picker`s: the current page's group, every page), `tree` (the one shown), `style`, `width`, `open?`, `span(cols)`, `offset(cols)`, `manual?`, `query`, `part(frame, row, col)` (`Field`, `Rule`, `Tree`, `Divider`), `tree_row`, `tree_rows`, `tree_cols`, `draw` |
+| `Viewer::Frame`          | title row with name, page heading and close mark, title line, content area (after a regular dock's columns, `dock`) with the scrollbars, status row: geometry (`inner`, `left`, `inner_cols`, `content_cols`), `name_width`, `heading_bounds`, `heading_col(width)`, `region(row, col)` (`Name`, `Title`, `Close`, `Border`, `Content`, `VerticalBar`, `HorizontalBar`, `Status`), `Frame.thumb`, `draw`, `title`, `rule` |
+| `Viewer::Help`           | the help from the bindings, drawn in the page area (`Help::TITLE` heads the title row) (`ACTION_HELP`, `FIELD_HELP`, `TREE_HELP`, `Help::MOUSE`): `lines`, `top`, `left`, `width`, `keys_width`, `scroll`, `scroll_x`, `rows`, `max_top`, `max_left`, `draw`, `Help.key_name(mods, key)` |
+| `Viewer::Field`          | the search field text: `insert`, `delete_back`, `clear`                   |
+| `Corpus`                 | the text of many pages (`require "docv/corpus"`): `build(sources)` from its mapped cache file (`text.bin`) or by parsing, in `threads` worker processes when `Corpus.worker` is set (`Corpus.serve`, `docv text-worker`); `text(index)`, `count(query, cancelled)` (lines every term matches per page, on isolated searcher threads), `Corpus.extract(path)`, `close` |
 | `Screen`            | front and back cell buffers with hyperlinks; `write`, `blit`, `fill`, `restyle`, `link(row, col, count, uri)` (OSC 8), `colors(palette, depth)`, `render(io)` rewrites changed rows only, with colors reduced to the depth |
-| `Term::Tty`         | raw mode, window size in cells and pixels, `enter`/`leave` of the full-screen state, `query_colors` (OSC 21), `copy(text)` (OSC 52 clipboard), `Tty.color_depth` (`NO_COLOR`, `COLORTERM`, `TERM`) |
+| `Term::Tty`         | raw mode, window size in cells and pixels, `enter`/`leave` of the full-screen state, `query_colors` (OSC 21), `copy(text)` (OSC 52 clipboard), `pointer(shape)` (OSC 22), `Tty.color_depth` (`NO_COLOR`, `COLORTERM`, `TERM`) |
 | `Term::Decoder`     | bytes into raw events: `KeyEvent`, `MouseEvent`, `ResizeEvent`, `FocusEvent`, `VisibilityEvent`, `ColorSchemeEvent`, `ModeReport`, `CellSizeReport`, `KeyboardFlagsReport`, `ColorsReport` (OSC 21) |
 | `Term::Input`       | derived events: pressed-set, `TextInput`/`KeyCommand`, `MousePress`, `Click` (with multi-click count), `Drag` (start/move/end), `Scroll` (accumulated), `PointerEnter`/`PointerMove`/`PointerLeave`; pixel-to-cell conversion |
 
 ### Terminal modes
 
-On entering, the viewer switches to the alternate screen and pushes kitty keyboard flags `31` inside it (`CSI > 31 u`). It enables mouse modes 1003, 1006 and 1016 and notification modes 2048, 1004, 2033 and 2031, then queries mode 1016, the cell size, the keyboard flags, visibility and the color scheme, and the theme colors with OSC 21 (again when the color scheme changes). On leaving it undoes all of this in reverse order. Mouse coordinates are read as pixels once the terminal confirms mode 1016; otherwise they are read as SGR cell coordinates. Frames are written inside synchronized-update brackets (mode 2026). URL links are written as OSC 8 hyperlinks, ended before the end of each row.
+On entering, the viewer switches to the alternate screen and pushes kitty keyboard flags `31` inside it (`CSI > 31 u`). It enables mouse modes 1003, 1006 and 1016 and notification modes 2048, 1004, 2033 and 2031, then queries mode 1016, the cell size, the keyboard flags, visibility and the color scheme, and the theme colors with OSC 21 (again when the color scheme changes). On leaving it undoes all of this in reverse order. Mouse coordinates are read as pixels once the terminal confirms mode 1016; otherwise they are read as SGR cell coordinates. Frames are written inside synchronized-update brackets (mode 2026). URL links are written as OSC 8 hyperlinks, ended before the end of each row. The mouse pointer is shaped with OSC 22 (kitty's pointer shapes, CSS cursor names) after each frame when what lies under it changed: `text` over page text and the search field, `pointer` over links, rows of the tree and the close mark, `ew-resize` over the dock's edge, `grab` over a scrollbar thumb and `grabbing` while dragging one, `default` elsewhere; leaving resets it.
 
 ## roff coverage
 
