@@ -1,21 +1,18 @@
 # src/docv/viewer/help.cr
+
 module Docv
   class Viewer
-    # The help: the keys of the page view, the dock's search field and its
-    # tree as they are bound (`ACTION_HELP`, `FIELD_HELP`, `TREE_HELP`), and
-    # the mouse gestures, shown in the page area in place of the page, with
-    # `TITLE` as the heading of the title row. It scrolls both ways.
+    # :nodoc:
+    # The help screen, built from the current bindings.
     class Help
-      # A help line: keys or a gesture and what they do; a section title when
-      # *heading*.
+      # Keys or a gesture and what they do, or a section title when *heading*.
       record Line, keys : String, text : String = "", heading : Bool = false
 
-      # The heading of the title row while the help is shown.
+      # Title row heading while the help is shown.
       TITLE = "HELP"
       # Widest keys column.
       KEYS_WIDTH = 30
 
-      # Mouse gestures and what they do.
       MOUSE = [
         {"wheel", "scroll"},
         {"Shift-wheel", "scroll sideways (the page or the tree)"},
@@ -94,35 +91,26 @@ module Docv
         end
       end
 
-      # Scrolls by *delta* lines in the page area of *frame*.
       def scroll(delta : Int32, frame : Frame) : Nil
         @top = (@top + delta).clamp(0, max_top(frame))
       end
 
-      # Lines shown at once on *frame*: the content rows.
       def rows(frame : Frame) : Int32
         Math.max(frame.content_rows, 1)
       end
 
-      # The largest `top` on *frame*.
       def max_top(frame : Frame) : Int32
         Math.max(@lines.size - rows(frame), 0)
       end
 
-      # Scrolls sideways by *delta* columns in the page area of *frame*.
       def scroll_x(delta : Int32, frame : Frame) : Nil
         @left = (@left + delta).clamp(0, max_left(frame))
       end
 
-      # The largest `left` on *frame*.
       def max_left(frame : Frame) : Int32
         Math.max(@width - frame.content_cols, 0)
       end
 
-      # Draws the help in the page area of *frame*, from its first content
-      # column scrolled by `left`, with the role style ids *styles*: section
-      # titles in `Heading1`, keys in `Name` (cut at `KEYS_WIDTH`), what they
-      # do in `Text`.
       def draw(screen : Screen, frame : Frame, styles : Array(UInt16)) : Nil
         origin = frame.left
         limit = origin + frame.content_cols
@@ -140,8 +128,8 @@ module Docv
         end
       end
 
-      # Writes the part of *text* starting at screen column *col* that lies
-      # between *origin* and *limit* (exclusive).
+      # Writes the part of *text*, starting at screen column *col*, that lies
+      # within *origin*...*limit*.
       private def put(screen : Screen, row : Int32, origin : Int32, limit : Int32, col : Int32, text : String,
                       style : UInt16) : Nil
         text.each_grapheme do |grapheme|

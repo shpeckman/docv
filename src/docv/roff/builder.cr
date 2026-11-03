@@ -1,8 +1,8 @@
 # src/docv/roff/builder.cr
+
+# :nodoc:
 module Docv::Roff
-  # Collects formatted output into `Block`s. Text goes to the current block,
-  # created on demand from the formatting environment, or to the innermost
-  # capture (tags, headings, table cells).
+  # Collects output into blocks, or into the innermost capture (tags, headings, cells).
   class Builder
     getter blocks = [] of Block
     # No-space mode (`.ns`): soft vertical space is dropped until text.
@@ -16,7 +16,6 @@ module Docv::Roff
     @tag_indent = 0
     @hang : Int32? = nil
 
-    # The formatting environment new blocks take their properties from.
     property env : Env
 
     def initialize(@env : Env)
@@ -31,43 +30,37 @@ module Docv::Roff
       append(target, text, style)
     end
 
-    # Requests a word space before the next text (end of a filled input
-    # line); a *hard* space does not break.
+    # Space before the next text; a *hard* space does not break.
     def word_space(hard : Bool = false) : Nil
       @space = true
       @hard_space = hard
     end
 
-    # Cancels a pending word space.
     def no_word_space : Nil
       @space = false
     end
 
-    # True when text is being captured instead of set in a block.
     def capturing? : Bool
       !@captures.empty?
     end
 
-    # Starts capturing text; pair with `end_capture`.
     def begin_capture : Nil
       @captures << [] of Span
       @space = false
     end
 
-    # Ends the innermost capture and returns its spans.
     def end_capture : Array(Span)
       @space = false
       @captures.pop? || [] of Span
     end
 
-    # Captures the text produced by the block.
     def capture(& : ->) : Array(Span)
       begin_capture
       yield
       end_capture
     end
 
-    # Ends the current output line.
+    # Ends the current line; a pending tag still gets a block of its own.
     def break_line : Nil
       if @current.nil? && @tag
         current
@@ -76,8 +69,7 @@ module Docv::Roff
       @space = false
     end
 
-    # Adds *lines* of vertical space. Soft space merges with adjacent soft
-    # space and is dropped at the start and in no-space mode.
+    # Soft space merges with soft space before it; dropped at the start and in no-space mode.
     def blank(lines : Int32, hard : Bool = false) : Nil
       break_line
       return if lines <= 0
@@ -95,7 +87,7 @@ module Docv::Roff
       @blocks << block
     end
 
-    # Adds a heading of *level* (1 section, 2 subsection) at *indent*.
+    # *level* 1 is a section, 2 a subsection.
     def heading(level : Int32, spans : Array(Span), indent : Int32) : Nil
       break_line
       block = Block.new(BlockKind::Heading)
@@ -106,7 +98,6 @@ module Docv::Roff
       @no_space = false
     end
 
-    # Adds a table at *indent*.
     def table(table : Table, indent : Int32) : Nil
       break_line
       block = Block.new(BlockKind::Table)
@@ -116,13 +107,13 @@ module Docv::Roff
       @no_space = false
     end
 
-    # Sets the tag of the next block, placed at column *indent*.
+    # Tags the next block, at column *indent*.
     def tag(spans : Array(Span), indent : Int32) : Nil
       @tag = spans
       @tag_indent = indent
     end
 
-    # Sets the first-line offset of the next block (hanging paragraphs).
+    # First-line offset of the next block (hanging paragraphs).
     def hang(offset : Int32) : Nil
       @hang = offset
     end
@@ -162,7 +153,7 @@ module Docv::Roff
       end
     end
 
-    # Finishes output: a pending tag becomes a block of its own.
+    # Ends output and drops trailing blank blocks.
     def finish : Nil
       break_line
       while (last = @blocks.last?) && last.kind.blank?

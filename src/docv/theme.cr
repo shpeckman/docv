@@ -1,29 +1,14 @@
 # src/docv/theme.cr
+
 module Docv
-  # The viewer's styles by role. A role's spec is a list of words:
-  # attributes (`bold`, `italic`, `underline`, `reverse`, `dim`), a
-  # foreground color, and `on` followed by a background color, e.g.
-  # `bold cyan`, `black on yellow`, `on background+12`.
-  #
-  # A color is `default`, `foreground`, `background`, an ANSI name (`black`,
-  # `red`, `green`, `yellow`, `blue`, `magenta`, `cyan`, `white`, and
-  # `bright-` before any of them), a palette number `0`-`255` or `#rrggbb`.
-  # ANSI names and numbers are the terminal theme's own colors. A `+N` or
-  # `-N` suffix ramps a color N percent toward the theme's foreground or
-  # background, so `background+12` is a shade off the background in a dark
-  # and a light theme alike.
-  #
-  # ```
-  # theme = Docv::Theme.new({Docv::Theme::Role::Heading1 => Docv::Theme.parse("bold #ff8800")})
-  # ids = theme.styles(Docv::Palette.new, Docv::ColorDepth::TrueColor)
-  # Docv::Styles[ids[Docv::Theme::Role::Heading1.value]] # => bold, fg #ff8800
-  # ```
+  # The viewer's style specs by `Role`: `DEFAULT` with overrides (see
+  # `Theme.parse` for the spec syntax).
   class Theme
     # A spec that cannot be parsed.
     class Error < Exception
     end
 
-    # What a style is for. Page roles restyle the page text; `Text` is plain.
+    # What a style is for: page text, a syntax class or a part of the viewer.
     enum Role
       Text
       Heading1
@@ -68,7 +53,11 @@ module Docv
       Status
       StatusSeparator
       Name
+      Document
       Detail
+      Button
+      ButtonDim
+      TreeGuide
       Selection
       Hover
       Mark
@@ -76,7 +65,7 @@ module Docv
       Popup
     end
 
-    # What a color refers to.
+    # :nodoc:
     enum Base
       Default
       Foreground
@@ -84,11 +73,10 @@ module Docv
       Fixed
     end
 
-    # A color of a spec: its base, the fixed color, and a ramp in percent
-    # (toward the foreground when positive, the background when negative).
+    # :nodoc:
+    # A spec color: base, fixed color and ramp percent (`Palette#ramp`).
     record Paint, base : Base = Base::Default, color : Color = Color::DEFAULT, ramp : Int32 = 0 do
-      # The color for *palette*, as a foreground or background. Ramped
-      # colors are RGB; others stay palette colors of the terminal theme.
+      # Ramped colors become RGB; others stay palette colors of the terminal theme.
       def resolve(palette : Palette, foreground : Bool) : Color
         if ramp == 0
           return color if base.fixed?
@@ -107,17 +95,19 @@ module Docv
 
     # A parsed spec.
     record Spec, attr : Attr = Attr::None, fg : Paint = Paint.new, bg : Paint = Paint.new do
+      # The style of this spec for *palette*.
       def style(palette : Palette) : Style
         Style.new(attr, fg.resolve(palette, true), bg.resolve(palette, false))
       end
     end
 
+    # :nodoc:
     ATTRIBUTES = {
       "bold" => Attr::Bold, "italic" => Attr::Italic, "underline" => Attr::Underline,
       "reverse" => Attr::Reverse, "dim" => Attr::Dim,
     }
 
-    # Color names: the bases, then the ANSI colors and their bright variants.
+    # :nodoc:
     COLORS = begin
       names = {"default" => Paint.new, "foreground" => Paint.new(Base::Foreground), "background" => Paint.new(Base::Background)}
       %w(black red green yellow blue magenta cyan white).each_with_index do |name, index|
@@ -127,10 +117,11 @@ module Docv
       names
     end
 
+    # :nodoc:
     # A color word with an optional ramp.
     PAINT = /\A([a-z0-9#]+(?:-[a-z]+)?)(?:([+-])(\d{1,3}))?\z/
 
-    # The colored theme.
+    # The default spec of every role.
     DEFAULT = {
       Role::Text              => "",
       Role::Heading1          => "bold bright-blue",
@@ -175,7 +166,11 @@ module Docv
       Role::Status            => "foreground-30",
       Role::StatusSeparator   => "foreground-60",
       Role::Name              => "bold cyan",
+      Role::Document          => "bold magenta",
       Role::Detail            => "foreground-35",
+      Role::Button            => "bold blue",
+      Role::ButtonDim         => "blue-40",
+      Role::TreeGuide         => "background+15",
       Role::Selection         => "on background+22",
       Role::Hover             => "on background+10",
       Role::Mark              => "bold underline yellow",
@@ -183,7 +178,7 @@ module Docv
       Role::Popup             => "on background+6",
     }
 
-    # The theme without colors (`NO_COLOR`): attributes only.
+    # The specs used without colors (`NO_COLOR`).
     MONOCHROME = {
       Role::Text              => "",
       Role::Heading1          => "bold",
@@ -228,7 +223,11 @@ module Docv
       Role::Status            => "",
       Role::StatusSeparator   => "dim",
       Role::Name              => "bold",
+      Role::Document          => "bold",
       Role::Detail            => "dim",
+      Role::Button            => "bold",
+      Role::ButtonDim         => "dim",
+      Role::TreeGuide         => "dim",
       Role::Selection         => "reverse",
       Role::Hover             => "bold",
       Role::Mark              => "bold underline",
@@ -236,7 +235,7 @@ module Docv
       Role::Popup             => "",
     }
 
-    # Config keys of the roles: `heading1`, `bold-italic`, `code-block`...
+    # Roles by config key (`heading1`, `bold-italic`...).
     KEYS = Role.values.to_h { |role| {Theme.key(role), role} }
 
     @@default_specs : Hash(Role, Spec)? = nil
@@ -247,7 +246,11 @@ module Docv
       role.to_s.underscore.tr("_", "-")
     end
 
-    # Parses a spec; raises `Error` on unknown words.
+    # Parses a spec: attribute words (`bold`, `italic`, `underline`, `reverse`,
+    # `dim`), a foreground color, and `on` with a background color. A color is
+    # `default`, `foreground`, `background`, an ANSI name (`red`, `bright-red`...),
+    # `0`-`255` or `#rrggbb`; a `+N`/`-N` suffix ramps it N percent toward the
+    # foreground or background. Raises `Error` on an invalid spec.
     def self.parse(text : String) : Spec
       attr = Attr::None
       fg = nil
@@ -305,15 +308,16 @@ module Docv
       @@monochrome_specs ||= MONOCHROME.transform_values { |text| parse(text) }
     end
 
+    # The spec of every role.
     getter specs : Hash(Role, Spec)
 
-    # The default theme with *overrides* (from `[colors]` in config.ini).
+    # The default theme with *overrides*.
     def initialize(overrides : Hash(Role, Spec) = {} of Role => Spec)
       @specs = Theme.default_specs.merge(overrides)
     end
 
     # The style id of every role for *palette* at *depth*, indexed by
-    # `Role#value`. At `ColorDepth::None` the roles take `MONOCHROME`.
+    # `Role#value`; `MONOCHROME` at `ColorDepth::None`.
     def styles(palette : Palette, depth : ColorDepth) : Array(UInt16)
       table = depth.none? ? Theme.monochrome_specs : @specs
       Role.values.map { |role| Styles.id(table[role].style(palette)) }

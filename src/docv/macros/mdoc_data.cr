@@ -1,8 +1,10 @@
 # src/docv/macros/mdoc_data.cr
+
+# :nodoc:
 module Docv::Macros
   # Static tables of the mdoc(7) package.
   module MdocData
-    # Body indent of sections, subsection heading indent, display indent.
+    # Indents in columns: section body, subsection heading, display.
     INDENT     = 5
     SUB_INDENT = 3
     DISPLAY    = 6
@@ -45,7 +47,7 @@ module Docv::Macros
     # Fixed phrases.
     PHRASES = {"Ux" => "UNIX", "Ud" => "currently under development.", "Bt" => "is currently in beta test."}
 
-    # Macros that may be called from within a macro line.
+    # Macros callable from a macro line.
     CALLABLE = Set{
       "Ac", "Ad", "An", "Ao", "Ap", "Aq", "Ar", "At", "Bc", "Bo", "Bq", "Brc", "Bro", "Brq", "Bsx",
       "Bx", "Cd", "Cm", "Dc", "Do", "Dq", "Dv", "Dx", "Ec", "Em", "En", "Eo", "Er", "Es", "Ev", "Fa",

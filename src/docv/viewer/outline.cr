@@ -1,40 +1,26 @@
 # src/docv/viewer/outline.cr
+
 module Docv
   class Viewer
     class Picker
-      # Items folded into groups by the name prefixes they share, for the
-      # page search: `abrt-cli` and `abrt-dump-oops` under `abrt`, and
-      # `abrt-dump-oops` and `abrt-dump-xorg` under `abrt-dump` within it.
-      #
-      # An item's `Item#key` splits into tokens at runs of `SEPARATORS`
-      # (`::` counts once). A prefix of whole tokens shared by at least
-      # `MIN_GROUP` items becomes a group; a group with a single subgroup and
-      # no items of its own takes that subgroup's prefix instead. Items with
-      # different `Item#group`s never share a group, and an item whose key
-      # is the prefix itself (`git` in `git`) is a member like the others.
-      # Groups and items are sorted by prefix or key ignoring case, items of
-      # one key in item order.
-      #
-      # Rows are named relative to their group: in `abrt-action`, the group
-      # `abrt-action-analyze` is `analyze` and the item `abrt-action-notify(1)`
-      # is `notify(1)`. An item named like its group is named relative to
-      # the group above (`abrt(1)` in `abrt`, `dump(1)` in `abrt-dump`), and
-      # one whose label does not start with the group prefix keeps its whole
-      # label.
+      # Items folded into nested groups by shared prefixes of whole `Item#key`
+      # tokens (split at `SEPARATORS`). A prefix shared by *min_group* items is
+      # a group; a group with one subgroup and no items takes its prefix. Items
+      # of different `Item#group`s never share a group. Items with an
+      # `Item#folder` go into a group of that name after the others of their
+      # `Item#group`, outlined the same way inside it. Inside a group, items
+      # come before subgroups.
       class Outline
         # Characters that end a name token.
         SEPARATORS = {'-', '_', '.', ':', '/'}
-        # Fewest items that make a group.
+        # Default fewest items that make a group.
         MIN_GROUP = 3
         # Columns each nesting level indents.
         INDENT = 2
 
-        # A row of the outline: a group (*item* is -1) of *size* items
-        # sharing *prefix*, or the item *item*. *parent* is the group it is
-        # in (-1 at the top) and *depth* its nesting level; a group's
-        # *children* are node ids in outline order. *text* is the row's name
-        # relative to its group: the prefix or the item label without its
-        # first *skip* characters.
+        # A group (*item* -1) of *size* items sharing *prefix*, or item *item*;
+        # *parent* is -1 at the top. *text* is the name relative to the group:
+        # the prefix or label without its first *skip* characters.
         record Node, prefix : String, item : Int32, parent : Int32, depth : Int32, size : Int32,
           children : Array(Int32), text : String, skip : Int32 do
           def group? : Bool
@@ -54,21 +40,26 @@ module Docv
 
         # Every node; a group comes before its children.
         getter nodes = [] of Node
-        # Top-level node ids, in item group order, then outline order.
+        # Top-level node ids, by item group, then outline order.
         getter roots = [] of Int32
 
         @leaves : Array(Int32)
 
-        def initialize(items : Array(Item))
+        def initialize(items : Array(Item), @min_group : Int32 = MIN_GROUP)
           @leaves = Array(Int32).new(items.size, -1)
-          tries = {} of Int32 => Trie
+          # Item group → folder ("" for none) → trie.
+          tries = {} of Int32 => Hash(String, Trie)
           items.each_with_index do |item, index|
-            insert(tries[item.group] ||= Trie.new(""), item.key, index)
+            folders = tries[item.group] ||= {} of String => Trie
+            insert(folders[item.folder] ||= Trie.new(item.folder), item.key, index)
           end
           tries.keys.sort!.each do |group|
-            trie = tries[group]
-            count(trie)
-            emit(trie, items, -1, 0, "", "", @roots)
+            folders = tries[group]
+            folders[""]?.try do |trie|
+              count(trie)
+              emit(trie, items, -1, 0, "", "", @roots)
+            end
+            folders.keys.reject(&.empty?).sort!.each { |name| folder(folders[name], items) }
           end
         end
 
@@ -82,8 +73,7 @@ module Docv
           collect(id, [] of Int32)
         end
 
-        # Calls the block with the token boundaries of *key*: the end of the
-        # token (the end of its prefix) and the start of the next token.
+        # Yields the end of each token of *key* and the start of the next.
         def self.each_token(key : String, & : Int32, Int32 ->) : Nil
           bytes = key.to_slice
           index = skip(bytes, 0, true)
@@ -94,12 +84,9 @@ module Docv
           end
         end
 
-        # *text* (a prefix or a label) relative to the group prefix *outer*:
-        # without *outer* and the separators after it, and the characters
-        # dropped. Text that does not continue *outer* with a separator and
-        # more name (`abrt-dump(1)` in `abrt-dump`) is relative to *above*,
-        # the prefix of the group around that one; text that does not start
-        # with *outer* is whole.
+        # *text* without group prefix *outer* and the separators after it, and
+        # the characters dropped. Text that does not continue *outer* with a
+        # separator and a name (`abrt-dump(1)`) is relative to *above* instead.
         def self.relative(text : String, outer : String, above : String = "") : {String, Int32}
           return {text, 0} if outer.empty? || !text.starts_with?(outer)
           start = skip(text.to_slice, outer.bytesize, true)
@@ -109,8 +96,7 @@ module Docv
           {text.byte_slice(start), text.byte_slice(0, start).size}
         end
 
-        # The first index from *index* in *bytes* that is not a separator
-        # (*separators*) or is one (not *separators*).
+        # Skips separators (*separators* true) or non-separators from *index*.
         private def self.skip(bytes : Bytes, index : Int32, separators : Bool) : Int32
           while index < bytes.size && SEPARATORS.includes?(bytes[index].unsafe_chr) == separators
             index += 1
@@ -139,12 +125,21 @@ module Docv
           node.items << index
         end
 
+        # A top-level group named after a folder, holding its outlined items.
+        private def folder(trie : Trie, items : Array(Item)) : Nil
+          id = @nodes.size
+          @roots << id
+          children = [] of Int32
+          @nodes << Node.new(trie.prefix, -1, -1, 0, count(trie), children, trie.prefix, 0)
+          emit(trie, items, id, 1, "", "", children)
+        end
+
         private def count(trie : Trie) : Int32
           trie.size = trie.items.size + trie.children.each_value.sum { |child| count(child) }
         end
 
-        # Adds the members of *trie* as nodes under *parent* (whose prefix is
-        # *outer*, inside the group of prefix *above*), their ids to *into*.
+        # Adds *trie*'s members as nodes under *parent* (prefix *outer*, inside
+        # *above*) and their ids to *into*.
         private def emit(trie : Trie, items : Array(Item), parent : Int32, depth : Int32, outer : String,
                          above : String, into : Array(Int32)) : Nil
           members = [] of {String, Int32, Trie?}
@@ -153,15 +148,18 @@ module Docv
             while child.items.empty? && child.children.size == 1
               child = child.children.first_value
             end
-            if child.size >= MIN_GROUP
+            if child.size >= @min_group
               members << {child.prefix, -1, child}
             else
               gather(child, indices = [] of Int32)
               indices.each { |index| members << {items[index].key, index, nil} }
             end
           end
+          # Inside a group its items come before its subgroups; the top
+          # level mixes them by name.
           members.sort! do |left, right|
-            order = left[0].compare(right[0], case_insensitive: true)
+            order = depth > 0 ? (left[2] ? 1 : 0) <=> (right[2] ? 1 : 0) : 0
+            order = left[0].compare(right[0], case_insensitive: true) if order == 0
             order = left[0] <=> right[0] if order == 0
             order == 0 ? left[1] <=> right[1] : order
           end

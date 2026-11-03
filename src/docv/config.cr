@@ -1,72 +1,69 @@
 # src/docv/config.cr
+
 require "ini"
 
 module Docv
-  # An XDG base directory: `$variable`, or `~/fallback` when the variable is
-  # unset or not an absolute path.
+  # :nodoc:
+  # `$variable`, or `~/fallback` when it is unset or not absolute.
   def self.base_directory(variable : String, fallback : String) : String
     base = ENV[variable]?
     base.nil? || base.empty? || !Path[base].absolute? ? Path.home.join(fallback).to_s : base
   end
 
-  # This program's directory under an XDG base directory: `$variable/docv`,
-  # or `~/fallback/docv` when the variable is unset or not an absolute
-  # path.
+  # :nodoc:
+  # `base_directory` with `docv` appended.
   def self.user_directory(variable : String, fallback : String) : String
     File.join(base_directory(variable, fallback), "docv")
   end
 
-  # Parsing options.
-  #
-  # *unsafe* enables the requests that run commands or touch files (see
-  # `Roff::Engine::UNSAFE`) and the `\V` escape. *stdin* is where `.rd` reads
-  # from; `nil` makes `.rd` read nothing. *highlight* colors code examples
-  # with tree-sitter grammars (`Syntax`).
-  record Options, unsafe : Bool = false, stdin : IO? = nil, highlight : Bool = false
+  # Parsing options: *unsafe* runs the requests that execute commands or
+  # touch files (and `\V`); *stdin* feeds `.rd` (`nil` reads nothing);
+  # *highlight* syntax-highlights code examples (`Syntax`); *indent* sets the
+  # body indent of manual pages in columns (`nil`: 7 for man(7), 5 for
+  # mdoc(7)).
+  record Options, unsafe : Bool = false, stdin : IO? = nil, highlight : Bool = false, indent : Int32? = nil
 
-  # How the viewer's dock sits beside the page: `Regular` narrows the page
-  # to make room, `Overlay` draws over the page's left edge.
+  # How the viewer's dock sits beside the page: `Regular` narrows the page,
+  # `Overlay` covers its left edge.
   enum DockStyle
     Regular
     Overlay
   end
 
-  # Viewer settings from `[viewer]`: the *dock* style, its width in columns
-  # (*dock_width*), whether it is open at start (*dock_open*), and the
-  # threads that read and search the text of all pages (*search_threads*;
-  # 0 is one less than the processor count).
-  record ViewerSettings, dock : DockStyle = DockStyle::Regular, dock_width : Int32 = 36,
-    dock_open : Bool = false, search_threads : Int32 = 0
+  # Settings of the viewer's dock from `[picker]`: the *dock* style, its width
+  # in columns, whether it opens at start, the fewest pages that make a group
+  # in its tree (*min_group*), and the number of search threads (0: one less
+  # than the processor count).
+  record PickerSettings, dock : DockStyle = DockStyle::Regular, dock_width : Int32 = 36,
+    dock_open : Bool = false, min_group : Int32 = 3, search_threads : Int32 = 0
 
-  # The user configuration in `$XDG_CONFIG_HOME/docv/config.ini`
-  # (`~/.config/docv/config.ini` when the variable is unset or not an
-  # absolute path). `Config.load` writes a commented default file when none
-  # exists.
+  # The user configuration, `$XDG_CONFIG_HOME/docv/config.ini`.
   class Config
-    # A configuration file that cannot be parsed or holds an invalid value.
+    # An unparsable configuration or an invalid value.
     class Error < Exception
     end
 
+    # :nodoc:
     FILE = "config.ini"
 
-    # Words accepted for boolean values.
+    # :nodoc:
     BOOLEANS = {
       "true" => true, "yes" => true, "on" => true, "1" => true,
       "false" => false, "no" => false, "off" => false, "0" => false,
     }
 
-    # Known keys per section.
+    # :nodoc:
     KEYS = {
-      "roff"   => Set{"unsafe"},
-      "viewer" => Set{"start-wrapped", "syntax-highlighting", "dock", "dock-width", "dock-open", "search-threads"},
+      "man"    => Set{"roff-unsafe", "indent"},
+      "viewer" => Set{"start-wrapped", "syntax-highlighting"},
+      "picker" => Set{"dock", "dock-width", "dock-open", "min-group", "search-threads"},
       "colors" => Theme::KEYS.keys.to_set,
     }
 
-    # Allowed ranges of the integer keys.
-    RANGES = {"dock-width" => 16..400, "search-threads" => 0..1024}
+    # :nodoc:
+    RANGES = {"indent" => 0..40, "dock-width" => 16..400, "min-group" => 2..1000, "search-threads" => 0..1024}
 
-    # The `[colors]` explanation in `DEFAULT`, followed there by every role
-    # with its default, commented out.
+    # :nodoc:
     COLORS = <<-INI
       [colors]
       ; Styles of the viewer, one per role. A style is attribute words (bold,
@@ -81,16 +78,16 @@ module Docv
 
       INI
 
-    # The file written when no configuration exists.
+    # The commented default file `load` writes when none exists.
     DEFAULT = String.build do |io|
-      io << ROFF << '\n' << VIEWER << '\n' << COLORS
+      io << MAN << '\n' << VIEWER << '\n' << PICKER << '\n' << COLORS
       Theme::DEFAULT.each { |role, spec| io << "; " << Theme.key(role) << " = " << spec << '\n' }
     end
 
-    private ROFF = <<-INI
+    private MAN = <<-INI
       ; docv configuration
 
-      [roff]
+      [man]
       ; Run the roff requests that execute commands or access files:
       ;   sy, pso, pi           run shell commands
       ;   open, opena, write,   write files
@@ -101,7 +98,10 @@ module Docv
       ; When false these requests are accepted and ignored. Manual pages are
       ; input from third parties: enable this only if you trust every page
       ; you open.
-      unsafe = false
+      roff-unsafe = false
+      ; Body indent of manual pages in columns. Unset: 7 for man(7) pages
+      ; and 5 for mdoc(7) pages, as groff indents them.
+      ; indent = 7
 
       INI
 
@@ -119,6 +119,11 @@ module Docv
       ; where nvim and helix install them, or in $XDG_DATA_HOME/docv/grammars
       ; and $XDG_DATA_HOME/docv/queries/<language>/.
       syntax-highlighting = true
+
+      INI
+
+    private PICKER = <<-INI
+      [picker]
       ; The dock left of the page holds the search field and the tree of
       ; pages (p opens and closes it). regular: the page narrows to make
       ; room; overlay: the dock covers the left of the page.
@@ -128,6 +133,9 @@ module Docv
       dock-width = 36
       ; Open the dock at start.
       dock-open = false
+      ; Fewest pages sharing a name prefix (abrt-cli, abrt-dump ...) that
+      ; make a group in the tree.
+      min-group = 3
       ; Threads that read the text of every page and search it, for the
       ; hit counts in the tree while finding in the page. 0: one less than
       ; the number of processors.
@@ -139,21 +147,23 @@ module Docv
     getter path : String?
     # Whether unsafe roff requests run.
     getter? unsafe : Bool
+    # The body indent of manual pages, if set.
+    getter indent : Int32?
     # Whether the viewer starts in the wrapped layout.
     getter? start_wrapped : Bool
     # Whether code examples are syntax highlighted.
     getter? syntax_highlighting : Bool
-    # Role styles from `[colors]`.
+    # Role specs from `[colors]`.
     getter colors : Hash(Theme::Role, Theme::Spec)
-    # The dock and search settings of the viewer.
-    getter viewer : ViewerSettings
+    # Dock and search settings.
+    getter picker : PickerSettings
 
     def initialize(@path : String? = nil, @unsafe : Bool = false, @colors = {} of Theme::Role => Theme::Spec,
                    @start_wrapped : Bool = true, @syntax_highlighting : Bool = true,
-                   @viewer : ViewerSettings = ViewerSettings.new)
+                   @picker : PickerSettings = PickerSettings.new, @indent : Int32? = nil)
     end
 
-    # The configuration directory: `$XDG_CONFIG_HOME/docv`.
+    # The configuration directory, `$XDG_CONFIG_HOME/docv`.
     def self.directory : String
       Docv.user_directory("XDG_CONFIG_HOME", ".config")
     end
@@ -163,8 +173,8 @@ module Docv
       File.join(directory, FILE)
     end
 
-    # Reads the configuration at *path*. When the file does not exist it is
-    # created with `DEFAULT` if *create* is set, and the defaults apply.
+    # Reads the configuration at *path*. A missing file gives the defaults and,
+    # with *create*, is written as `DEFAULT`.
     def self.load(path : String = self.path, create : Bool = true) : Config
       unless File.exists?(path)
         if create
@@ -176,7 +186,8 @@ module Docv
       parse(File.read(path), path)
     end
 
-    # Parses configuration *text*.
+    # Parses configuration *text* (*path* names it in errors); raises `Error`
+    # when invalid.
     def self.parse(text : String, path : String? = nil) : Config
       data = begin
         INI.parse(text)
@@ -189,8 +200,9 @@ module Docv
           raise Error.new("#{path || "config"}: unknown key #{key} in [#{section}]") unless known.includes?(key)
         end
       end
-      roff = data["roff"]? || {} of String => String
+      man = data["man"]? || {} of String => String
       viewer = data["viewer"]? || {} of String => String
+      picker = data["picker"]? || {} of String => String
       colors = (data["colors"]? || {} of String => String).to_h do |key, text|
         spec = begin
           Theme.parse(text)
@@ -199,13 +211,14 @@ module Docv
         end
         {Theme::KEYS[key], spec}
       end
-      defaults = ViewerSettings.new
-      settings = ViewerSettings.new(dock_style(viewer, defaults.dock, path),
-        integer(viewer, "dock-width", defaults.dock_width, path),
-        boolean(viewer, "dock-open", defaults.dock_open, path),
-        integer(viewer, "search-threads", defaults.search_threads, path))
-      new(path, boolean(roff, "unsafe", false, path), colors, boolean(viewer, "start-wrapped", true, path),
-        boolean(viewer, "syntax-highlighting", true, path), settings)
+      defaults = PickerSettings.new
+      settings = PickerSettings.new(dock_style(picker, defaults.dock, path),
+        integer(picker, "dock-width", path) || defaults.dock_width,
+        boolean(picker, "dock-open", defaults.dock_open, path),
+        integer(picker, "min-group", path) || defaults.min_group,
+        integer(picker, "search-threads", path) || defaults.search_threads)
+      new(path, boolean(man, "roff-unsafe", false, path), colors, boolean(viewer, "start-wrapped", true, path),
+        boolean(viewer, "syntax-highlighting", true, path), settings, integer(man, "indent", path))
     end
 
     private def self.boolean(values : Hash(String, String), key : String, default : Bool, path : String?) : Bool
@@ -215,8 +228,9 @@ module Docv
       value
     end
 
-    private def self.integer(values : Hash(String, String), key : String, default : Int32, path : String?) : Int32
-      text = values[key]? || return default
+    # The value of integer *key*, `nil` when unset.
+    private def self.integer(values : Hash(String, String), key : String, path : String?) : Int32?
+      text = values[key]? || return nil
       range = RANGES[key]
       value = text.strip.to_i?
       unless value && range.includes?(value)
@@ -231,14 +245,14 @@ module Docv
         raise Error.new("#{path || "config"}: dock must be #{DockStyle.names.map(&.downcase).join(" or ")}, not #{text}")
     end
 
-    # The viewer theme: the defaults with the `[colors]` overrides.
+    # The default theme with the `[colors]` overrides.
     def theme : Theme
       Theme.new(@colors)
     end
 
     # Parsing options from this configuration; *stdin* feeds `.rd`.
     def options(stdin : IO? = nil) : Options
-      Options.new(@unsafe, stdin, @syntax_highlighting)
+      Options.new(@unsafe, stdin, @syntax_highlighting, @indent)
     end
   end
 end

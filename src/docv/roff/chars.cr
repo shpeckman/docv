@@ -1,10 +1,10 @@
 # src/docv/roff/chars.cr
+
+# :nodoc:
 module Docv::Roff
-  # groff special character names (`\(xx`, `\[name]`, `\C'name'`) and their
-  # UTF-8 renderings.
+  # groff special characters (`\(xx`, `\[name]`, `\C'name'`) as UTF-8.
   module Chars
     TABLE = {
-      # punctuation and typography
       "em" => "—", "en" => "–", "hy" => "‐", "bu" => "•", "co" => "©", "rg" => "®", "tm" => "™",
       "dg" => "†", "dd" => "‡", "sc" => "§", "ps" => "¶", "de" => "°", "%0" => "‰", "fm" => "′",
       "sd" => "″", "lq" => "“", "rq" => "”", "oq" => "‘", "cq" => "’", "aq" => "'", "dq" => "\"",
@@ -18,10 +18,8 @@ module Docv::Roff
       "CL" => "♣", "DI" => "♦", "rn" => "‾", "vs" => "|", "lB" => "[", "rB" => "]", "lC" => "{",
       "rC" => "}", "la" => "⟨", "ra" => "⟩", "st" => "∋", "tf" => "∴", "3d" => "∴", "an" => "⎯",
       "en-dash" => "–", "radicalex" => "‾", "sqrtex" => "‾", "ss" => "ß", "space" => " ",
-      # arrows
       "<-" => "←", "->" => "→", "<>" => "↔", "da" => "↓", "ua" => "↑", "va" => "↕", "lA" => "⇐",
       "rA" => "⇒", "hA" => "⇔", "dA" => "⇓", "uA" => "⇑", "vA" => "⇕",
-      # mathematics
       "pl" => "+", "mi" => "−", "-+" => "∓", "+-" => "±", "t+-" => "±", "pc" => "·", "md" => "⋅",
       "mu" => "×", "tmu" => "×", "di" => "÷", "tdi" => "÷", "f/" => "⁄", "**" => "∗", "<=" => "≤",
       ">=" => "≥", "<<" => "≪", ">>" => "≫", "eq" => "=", "!=" => "≠", "==" => "≡", "ne" => "≢",
@@ -36,11 +34,9 @@ module Docv::Roff
       "te" => "∃", "fa" => "∀", "c*" => "⊗", "c+" => "⊕", "ox" => "⊗", "o+" => "⊕", "cy" => "¤",
       "bs" => "\\", "bv" => "⎪", "lt" => "⎧", "lb" => "⎩", "rt" => "⎫", "rb" => "⎭", "lk" => "⎨",
       "rk" => "⎬", "lh" => "☜", "rh" => "☞",
-      # ligatures and letters
       "ae" => "æ", "AE" => "Æ", "oe" => "œ", "OE" => "Œ", "/o" => "ø", "/O" => "Ø", "/l" => "ł",
       "/L" => "Ł", "-D" => "Đ", "Sd" => "ð", "TP" => "Þ", "Tp" => "þ", "IJ" => "Ĳ", "ij" => "ĳ",
       ".i" => "ı", ".j" => "ȷ", "fi" => "fi", "fl" => "fl", "ff" => "ff", "Fi" => "ffi", "Fl" => "ffl",
-      # greek
       "*a" => "α", "*b" => "β", "*g" => "γ", "*d" => "δ", "*e" => "ε", "*z" => "ζ", "*y" => "η",
       "*h" => "θ", "*i" => "ι", "*k" => "κ", "*l" => "λ", "*m" => "μ", "*n" => "ν", "*c" => "ξ",
       "*o" => "ο", "*p" => "π", "*r" => "ρ", "*s" => "σ", "ts" => "ς", "*t" => "τ", "*u" => "υ",
@@ -49,7 +45,6 @@ module Docv::Roff
       "*L" => "Λ", "*M" => "Μ", "*N" => "Ν", "*C" => "Ξ", "*O" => "Ο", "*P" => "Π", "*R" => "Ρ",
       "*S" => "Σ", "*T" => "Τ", "*U" => "Υ", "*F" => "Φ", "*X" => "Χ", "*Q" => "Ψ", "*W" => "Ω",
       "+h" => "ϑ", "+f" => "ϕ", "+p" => "ϖ", "+e" => "ϵ",
-      # box drawing used by tbl and pic output
       "br-h" => "─", "br-v" => "│",
     }
 
@@ -60,8 +55,7 @@ module Docv::Roff
       'u' => '̆', '.' => '̇', 'h' => '̨',
     }
 
-    # Looks up a special character; `nil` for unknown names. Handles `uXXXX`
-    # (with `_`-joined composites), `charNNN` and accented letters.
+    # Also handles `uXXXX` (`_` joins composites), `charNNN` and accents (`'e`); `nil` if unknown.
     def self.[]?(name : String) : String?
       if found = TABLE[name]?
         return found

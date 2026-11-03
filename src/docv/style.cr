@@ -1,6 +1,7 @@
 # src/docv/style.cr
+
 module Docv
-  # Text attributes of a rendition.
+  # Text attributes of a `Style`.
   @[Flags]
   enum Attr : UInt8
     Bold
@@ -11,21 +12,21 @@ module Docv
     Strike
   end
 
-  # What page text is beyond its rendition. A parser sets it; the viewer
-  # draws marked text in a role (`Viewer::MARKUP_ROLES`).
+  # What a piece of text is (code, quote bar, syntax class...), set by the
+  # parsers; the viewer draws each kind in its own `Theme::Role`.
   enum Markup : UInt8
     None
     # Inline code.
     Code
-    # A line of a code block.
+    # A code block line.
     CodeBlock
-    # The bar of a block quote.
+    # A block quote bar.
     Quote
     # A horizontal rule.
     Rule
     # The text standing for an image.
     Image
-    # Syntax of highlighted code (`Syntax::CAPTURES`).
+    # Highlighted code, by syntax class (`Syntax::CAPTURES`).
     SyntaxKeyword
     SyntaxString
     SyntaxComment
@@ -40,7 +41,7 @@ module Docv
 
   # How many colors the terminal shows.
   enum ColorDepth : UInt8
-    # No colors at all (`NO_COLOR`); attributes only.
+    # No colors (`NO_COLOR`); attributes only.
     None
     # The 16 ANSI colors.
     Ansi
@@ -50,10 +51,10 @@ module Docv
     TrueColor
   end
 
-  # A terminal color: the default color, an entry of the terminal's 256-color
-  # palette (0-15 are the ANSI colors of the terminal theme) or a 24-bit RGB
-  # value, packed into 32 bits.
+  # A terminal color in 32 bits: the default color, an entry of the
+  # 256-color palette, or 24-bit RGB.
   struct Color
+    # :nodoc:
     RGB_FLAG = 0x0100_0000_u32
 
     # The terminal's default foreground or background.
@@ -64,8 +65,7 @@ module Docv
     def initialize(@value : UInt32)
     end
 
-    # Palette entry *index* (0-255; 0-7 are the ANSI colors, 8-15 their
-    # bright variants).
+    # Palette entry *index* (0-255; 0-15 are the ANSI colors).
     def self.palette(index : Int) : Color
       new(index.clamp(0, 255).to_u32 + 1)
     end
@@ -104,8 +104,8 @@ module Docv
       (@value & 0xff).to_u8
     end
 
-    # Writes the SGR parameters selecting this color as the *foreground* or
-    # background, each after a `;`; nothing for the default color.
+    # Writes `;`-prefixed SGR parameters selecting this color as *foreground*
+    # or background; nothing for the default color.
     def to_sgr(io : IO, foreground : Bool) : Nil
       return if default?
       if rgb?
@@ -120,28 +120,28 @@ module Docv
     end
   end
 
-  # A text rendition: attributes plus foreground and background color, and
-  # the markup of the text (not written to the terminal).
+  # A text style: attributes, foreground and background colors, and the
+  # `Markup` of the text (not written to the terminal).
   record Style, attr : Attr = Attr::None, fg : Color = Color::DEFAULT, bg : Color = Color::DEFAULT,
     markup : Markup = Markup::None do
-    # Returns a copy with *extra* attributes added.
+    # A copy with *extra* attributes added.
     def add(extra : Attr) : Style
       copy_with(attr: attr | extra)
     end
 
-    # Returns a copy with different colors.
+    # A copy with other colors.
     def colors(fg : Color, bg : Color) : Style
       copy_with(fg: fg, bg: bg)
     end
 
-    # Returns this style with *over* on top: attributes combined, each color
-    # and the markup replaced where *over* has one.
+    # This style with *over* on top: attributes combined, colors and markup
+    # replaced where *over* sets them.
     def merge(over : Style) : Style
       Style.new(attr | over.attr, over.fg.default? ? fg : over.fg, over.bg.default? ? bg : over.bg,
         over.markup.none? ? markup : over.markup)
     end
 
-    # Writes the SGR sequence selecting this rendition from a reset state.
+    # Writes the SGR sequence selecting this style from a reset state.
     def to_sgr(io : IO) : Nil
       io << "\e[0"
       io << ";1" if attr.bold?
@@ -156,13 +156,12 @@ module Docv
     end
   end
 
-  # Interns `Style` values into 16-bit ids so cells stay small. Id `0` is the
-  # default rendition.
+  # Interns `Style` values as 16-bit ids; id `0` is the default style.
   module Styles
     @@list = [Style.new]
     @@ids = {Style.new => 0_u16}
 
-    # Returns the id of *style*, registering it on first use.
+    # The id of *style*, registered on first use.
     def self.id(style : Style) : UInt16
       @@ids[style] ||= begin
         @@list << style
@@ -170,27 +169,25 @@ module Docv
       end
     end
 
-    # Returns the style registered under *id*.
+    # The style of *id*.
     def self.[](id : UInt16) : Style
       @@list[id]
     end
 
-    # Returns the id of the style of *id* with *extra* attributes added.
+    # The id of *id*'s style with *extra* attributes added.
     def self.add(id : UInt16, extra : Attr) : UInt16
       id(self[id].add(extra))
     end
 
-    # Returns the id of the style of *id* with the style of *over* on top
-    # (`Style#merge`).
+    # The id of *id*'s style with *over*'s on top (`Style#merge`).
     def self.merge(id : UInt16, over : UInt16) : UInt16
       return id if over == 0
       id(self[id].merge(self[over]))
     end
   end
 
-  # Named roff colors: the eight ANSI colors and `default`, plus the colors
-  # a page defines with `.defcolor` as 24-bit values (the screen maps them to
-  # fewer colors when the terminal shows fewer).
+  # :nodoc:
+  # Named roff colors, including those a page defines with `.defcolor`.
   module Colors
     NAMES = {
       "default" => Color::DEFAULT, "black" => Color.palette(0), "red" => Color.palette(1),
@@ -200,13 +197,11 @@ module Docv
 
     @@defined = Hash(String, Color).new
 
-    # Looks up a color by roff name; unknown names yield `nil`.
     def self.[]?(name : String) : Color?
       @@defined[name]? || NAMES[name]?
     end
 
-    # Defines *name* from a roff color specification (`rgb #rrggbb`,
-    # `gray`/`grey` and `cmyk` schemes).
+    # *scheme* is `rgb`, `gray`/`grey` or `cmy`/`cmyk`, as in `.defcolor`.
     def self.define(name : String, scheme : String, value : String) : Nil
       rgb = parse(scheme, value)
       @@defined[name] = rgb ? Color.rgb(*rgb) : Color::DEFAULT

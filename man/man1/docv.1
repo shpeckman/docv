@@ -155,20 +155,19 @@ Generate the man pages of a Crystal shard: the nearest directory from
 .IR shard.yml .
 It runs
 .B crystal docs \-\-format json
-there and renders
+there and renders two gzipped pages:
 .I README.md
-as the overview page
-.IB name .7cr
-and the doc comments of every type as
-.IB Type .3cr
-pages (with a
-.IB name \-toplevel.3cr
-page when the top level declares methods, macros or constants), into
+as the overview
+.IB name .7cr.gz
+and the doc comments as the API page
+.IB name .3cr.gz ,
+with a section per type (and one for the top level when it declares
+methods, macros or constants), into
 .I dir
 (default
 .IR man ),
 relative to the shard root.
-The pages land in
+They land in
 .I man7/
 and
 .IR man3/ ,
@@ -462,8 +461,11 @@ in
 The tree shows the pages around the current one: for a page of the project,
 or without a page, the project's pages
 .RI ( name ( section ))
-and Markdown documents (by their path from the project root); for another
-page, the outermost group it is in, or the page alone when it is in none.
+and, below them in a
+.B Markdown
+group, its Markdown documents (by their path from the project root); for
+another page, the outermost group it is in, or the page alone when it is in
+none.
 Names that share a prefix fold into nested groups:
 .B abrt\-cli
 and
@@ -486,7 +488,11 @@ and
 .B systemd.unit
 and the project's
 .B docs/guide.md
-group too), and it takes at least 3 entries to make a group.
+group too), and it takes at least
+.B min\-group
+entries (3 by default, see
+.MR docv\-config 5 )
+to make a group.
 Groups cross sections and are case-sensitive; a page named like its group
 is listed inside it.
 Rows are named relative to their group, so
@@ -496,9 +502,25 @@ reads
 under
 .BR analyze ;
 a page named like its group is named relative to the group above.
-The groups are folded and listed by name, except those around the current
-page, which is selected; the tree follows the page, switching to the group
-of a page in another one.
+Inside a group its pages come first, then its subgroups, each by name; the
+top level lists them by name.
+Groups unfold level by level as far as the dock has room, always around the
+current page, which is selected; the tree follows the page, switching to
+the group of a page in another one.
+An open group is marked
+.BR \[u25CB] ,
+a folded one
+.BR \[u25CF] ;
+a branch
+.RB ( \[u251C]\[u2576] ,
+or
+.B \[u2570]\[u2576]
+for the last row of a group) connects each row to its group.
+Before it, each enclosing level shows a line
+.RB ( \[u2502] )
+while that level continues below, a faint guide
+.RB ( \[u254E] )
+while only an outer level does, or nothing.
 Rows wider than the dock scroll sideways.
 .PP
 Text in the search field without a leading

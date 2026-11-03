@@ -1,10 +1,8 @@
 # src/docv/layout/table.cr
+
 module Docv
   class Layout
-    # Renders a `Table` into rows: column widths from content and `w()`
-    # minimums, text blocks filled to fit the width when wrapping, an
-    # `expand` table widened to the full width, rules and frames drawn with
-    # box-drawing characters.
+    # :nodoc:
     class TableLayout
       RULE_STYLE = 0_u16
 
@@ -16,7 +14,6 @@ module Docv
       def initialize(@table : Table, @layout : Layout)
       end
 
-      # Rows of the table at *indent* within *width*.
       def rows(indent : Int32, width : Int32, wrap : Bool) : Array(Row)
         columns = @table.columns
         return [] of Row if columns == 0
@@ -105,8 +102,7 @@ module Docv
         expand(width - indent - table_width) if @table.expand?
       end
 
-      # Spreads *room* spare columns over the columns in proportion to their
-      # widths; the last column takes what rounding leaves.
+      # Spreads *room* over the columns by width; the last takes the remainder.
       private def expand(room : Int32) : Nil
         return if room <= 0 || @widths.empty?
         natural = @widths.sum
@@ -129,7 +125,7 @@ module Docv
         @widths.each_with_index.sum { |(w, column)| blocks.includes?(column) ? 0 : w } + @separators.sum
       end
 
-      # Number of columns the cell at *column* covers (itself plus `s` cells).
+      # Columns the cell at *column* covers (itself plus `s` cells).
       private def spans(row : Table::Row, column : Int32) : Int32
         count = 1
         while column + count < @table.columns && (next_cell = row.cells[column + count]?) && next_cell.kind.h_span?
@@ -210,8 +206,7 @@ module Docv
         end
       end
 
-      # The lines of a cell, each with its links at columns from the cell's
-      # start.
+      # Links of the returned rows count columns from the cell's start.
       private def cell_lines(cell : Table::Cell, width : Int32, column : Int32, count : Int32) : Array(Row)
         pieces = @layout.tokenize(cell.spans)
         if cell.block?

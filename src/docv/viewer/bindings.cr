@@ -1,7 +1,8 @@
 # src/docv/viewer/bindings.cr
+
 module Docv
   class Viewer
-    # Everything a key can do in the page view.
+    # Actions of the page view.
     enum Action
       LineDown
       LineUp
@@ -31,8 +32,7 @@ module Docv
       Quit
     end
 
-    # Everything a key can do while the dock's search field has the
-    # keyboard. Text keys insert.
+    # Actions of the dock's search field; text keys insert.
     enum FieldAction
       Accept
       Cancel
@@ -49,8 +49,7 @@ module Docv
       Switch
     end
 
-    # Everything a key can do while the dock's tree has the keyboard. Other
-    # keys go to the page view.
+    # Actions of the dock's tree; unbound keys go to the page view.
     enum TreeAction
       Next
       Previous
@@ -67,8 +66,7 @@ module Docv
       Leave
     end
 
-    # Page view bindings: modifiers, key number (codepoint or `Term::Key`),
-    # action.
+    # Page view bindings: {modifiers, key (codepoint or `Term::Key`), action}.
     DEFAULT_BINDINGS = [
       {Term::Mods::None, 'j'.ord, Action::LineDown},
       {Term::Mods::None, Term::Key::DOWN, Action::LineDown},
@@ -119,7 +117,7 @@ module Docv
       {Term::Mods::Ctrl, 'c'.ord, Action::Quit},
     ]
 
-    # What each action does, for the help.
+    # :nodoc:
     ACTION_HELP = {
       Action::LineDown   => "line down",
       Action::LineUp     => "line up",
@@ -149,7 +147,7 @@ module Docv
       Action::Quit       => "quit",
     }
 
-    # What each search field action does, for the help.
+    # :nodoc:
     FIELD_HELP = {
       FieldAction::Accept       => "back to the page at the match / open the page / fold or unfold the group",
       FieldAction::Cancel       => "to the tree",
@@ -192,7 +190,7 @@ module Docv
       {Term::Mods::None, Term::Key::ESCAPE, TreeAction::Leave},
     ]
 
-    # What each tree action does, for the help.
+    # :nodoc:
     TREE_HELP = {
       TreeAction::Next         => "next page or group",
       TreeAction::Previous     => "previous page or group",
@@ -231,17 +229,16 @@ module Docv
       {Term::Mods::None, Term::Key::TAB, FieldAction::Switch},
     ]
 
-    # Maps key events to values of *T*: first by physical key (base layout),
-    # then by the reported key, then by the shifted symbol without its
-    # shift.
+    # Maps keys (modifiers and key number) to values of type *T*.
     class Keymap(T)
       @table = Hash({Term::Mods, Int32}, T).new
 
+      # Creates a keymap from {modifiers, key, value} *entries*; later ones win.
       def initialize(entries : Enumerable({Term::Mods, Int32, T}))
         entries.each { |mods, key, value| @table[{mods, key}] = value }
       end
 
-      # Binds *mods* + *key* to *value*.
+      # Binds *binding* ({modifiers, key}) to *value*.
       def []=(binding : {Term::Mods, Int32}, value : T) : T
         @table[binding] = value
       end
@@ -251,7 +248,8 @@ module Docv
         @table.compact_map { |binding, bound| bound == value ? binding : nil }
       end
 
-      # The value bound to *event*, if any.
+      # :nodoc:
+      # By physical key, then reported key, then shifted symbol without Shift.
       def lookup(event : Term::KeyEvent) : T?
         mods = event.mods.normalized
         if base = event.base

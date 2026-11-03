@@ -1,17 +1,17 @@
 # src/docv/roff/engine.cr
+
+# :nodoc:
 module Docv::Roff
-  # A macro package implemented natively (man, mdoc).
+  # A natively implemented macro package (man, mdoc).
   abstract class Package
     def initialize(@engine : Engine)
     end
 
-    # True when *name* is one of the package's macros.
     abstract def handles?(name : String) : Bool
 
-    # Runs macro *name*; *line* holds its arguments, interpolated in copy mode.
+    # *line* holds the arguments, already interpolated in copy mode.
     abstract def call(name : String, line : String) : Nil
 
-    # The document format the package produces.
     abstract def format : Format
 
     # Called once at the end of input.
@@ -47,12 +47,11 @@ module Docv::Roff
     end
   end
 
-  # The roff interpreter: input stack, requests, strings, macros, registers,
-  # conditionals, escapes. It drives a native macro package and a `Builder`.
+  # The roff interpreter; drives a native macro package and a `Builder`.
   class Engine
-    # Maximum nesting of the input stack (macro recursion guard).
+    # Input stack depth limit (guards macro recursion).
     MAX_DEPTH = 120
-    # Maximum iterations of one `.while` loop.
+    # Iteration limit of one `.while` loop.
     MAX_LOOP = 10_000
 
     getter doc : Document
@@ -102,7 +101,6 @@ module Docv::Roff
       predefine
     end
 
-    # Switches the formatting environment.
     def env=(env : Env) : Env
       @builder.env = env
       @env = env
@@ -141,7 +139,6 @@ module Docv::Roff
 
     # --- input stack -------------------------------------------------------
 
-    # Pushes *frame* and interprets it until it is exhausted.
     def run_frame(frame : Frame) : Nil
       return if @frames.size >= MAX_DEPTH
       floor = @frames.size
@@ -152,14 +149,12 @@ module Docv::Roff
       @frames.pop if @frames.size > floor
     end
 
-    # Interprets *lines* as input (macro bodies of packages, conditional
-    # bodies).
+    # Interprets *lines* as input (package macro bodies, conditional bodies).
     def run_lines(lines : Array(String), kind : Frame::Kind = Frame::Kind::Body) : Nil
       run_frame(Frame.new(kind, lines, "", current_args))
     end
 
-    # Reads the next input line from frames above *floor*, joining escaped
-    # newlines.
+    # Next input line from frames above *floor*, with escaped newlines joined.
     def next_line(floor : Int32) : String?
       return nil if @halted
       while @frames.size > floor
@@ -195,8 +190,7 @@ module Docv::Roff
       count.odd?
     end
 
-    # Rewrites a file line for a changed escape character (`.ec`, `.eo`), so
-    # the rest of the engine only knows the backslash.
+    # Rewrites a line for `.ec`/`.eo` so the rest of the engine only sees backslashes.
     private def translate_escape(line : String) : String
       return line if @escapes && @ec == '\\'
       String.build(line.bytesize) do |io|
@@ -218,12 +212,10 @@ module Docv::Roff
       lines.map!(&.rchop('\r'))
     end
 
-    # Number of frames on the input stack.
     def frame_depth : Int32
       @frames.size
     end
 
-    # The arguments of the innermost macro call.
     def current_args : Array(String)
       @frames.reverse_each { |frame| return frame.args if frame.kind.macro? }
       [] of String
@@ -236,7 +228,6 @@ module Docv::Roff
 
     # --- line dispatch -----------------------------------------------------
 
-    # Interprets one input line.
     def process(line : String) : Nil
       line = strip_closing_braces(line)
       return if line.nil?
@@ -255,8 +246,7 @@ module Docv::Roff
       end
     end
 
-    # Removes leading `\}` of closed conditional blocks; `nil` when nothing
-    # else is on the line.
+    # Drops leading `\}`; `nil` when nothing else is on the line.
     private def strip_closing_braces(line : String) : String?
       return line unless line.includes?("\\}")
       stripped = line
@@ -302,7 +292,7 @@ module Docv::Roff
       {name, args}
     end
 
-    # Runs request, macro or package macro *name* with raw arguments *args*.
+    # Runs *name* with uninterpolated *args*.
     def dispatch(name : String, args : String, no_break : Bool = false) : Nil
       if name == "TS"
         Tbl.new(self).run(args)
@@ -315,8 +305,7 @@ module Docv::Roff
       end
     end
 
-    # Runs *name* with an already interpolated argument line (for packages
-    # that call other macros).
+    # Runs *name* with an already interpolated *line* (packages calling macros).
     def call_name(name : String, line : String) : Nil
       if body = @macros[name]?
         invoke(name, body, split_args(line))
@@ -327,12 +316,10 @@ module Docv::Roff
       end
     end
 
-    # True when *name* is a user-defined string or macro.
     def defined?(name : String) : Bool
       @macros.has_key?(name)
     end
 
-    # Calls a user macro with *args*.
     def invoke(name : String, body : Array(String), args : Array(String)) : Nil
       run_frame(Frame.new(Frame::Kind::Macro, body, name, args))
     end
@@ -353,8 +340,7 @@ module Docv::Roff
       chosen
     end
 
-    # Splits an argument line: blanks separate arguments, double quotes
-    # group them and `""` inside quotes is a literal quote.
+    # Splits at blanks; double quotes group, and `""` inside them is a literal quote.
     def split_args(line : String) : Array(String)
       args = [] of String
       reader = Char::Reader.new(line)
@@ -427,8 +413,7 @@ module Docv::Roff
       text_line_done(continued)
     end
 
-    # Ends an output-producing input line: word space or break, line
-    # captures, one-line hooks, centering counts and input traps.
+    # Ends an output line: space or break, captures, hooks, `.ce`/`.rj` counts, input traps.
     def text_line_done(continued : Bool = false) : Nil
       return if continued
       if capture = @line_capture
@@ -462,21 +447,19 @@ module Docv::Roff
       @line_hooks << hook
     end
 
-    # Captures the text of the next input line and hands its spans to
-    # *block* (`.TP` tags, `.SH` without arguments).
+    # Hands the spans of the next input line to *block* (`.TP` tags, bare `.SH`).
     def capture_next_line(&block : Array(Span) ->) : Nil
       @builder.begin_capture
       @line_capture = block
     end
 
-    # True while the next input line is being captured.
     def capturing_line? : Bool
       !@line_capture.nil?
     end
 
     # --- conditionals --------------------------------------------------------
 
-    # Splits a conditional into its condition and body and evaluates it.
+    # Evaluates a conditional; returns the result and the body.
     def condition(raw : String) : {Bool, String}
       text = raw.lstrip(" \t")
       negate = false
@@ -604,7 +587,7 @@ module Docv::Roff
       depth
     end
 
-    # `.ie`: evaluates and remembers the result for `.el`.
+    # `.ie`: remembers the result for `.el`.
     def if_else(raw : String) : Nil
       result, body = condition(raw)
       @conditions << result
@@ -617,7 +600,7 @@ module Docv::Roff
       conditional_body(previous == false, raw.lstrip(" \t"))
     end
 
-    # `.while`: collects the body and runs it while the condition holds.
+    # `.while`, at most `MAX_LOOP` iterations.
     def while_loop(raw : String) : Nil
       text = raw.lstrip(" \t")
       result, body = condition(text)
@@ -644,7 +627,7 @@ module Docv::Roff
       end
     end
 
-    # `.break` and `.continue`: leave the innermost loop iteration.
+    # `.break` (*break_out*) and `.continue`.
     def leave_loop(break_out : Bool) : Nil
       @frames.reverse_each do |frame|
         frame.finish
@@ -655,7 +638,7 @@ module Docv::Roff
       end
     end
 
-    # `.return`: leaves the innermost macro.
+    # `.return`.
     def return_from_macro : Nil
       @frames.reverse_each do |frame|
         frame.finish
@@ -663,17 +646,17 @@ module Docv::Roff
       end
     end
 
-    # `.shift n`: drops the first *n* macro arguments.
+    # `.shift`: drops the first *count* macro arguments.
     def shift_args(count : Int32) : Nil
       macro_frame.try { |frame| frame.args = frame.args[Math.min(count, frame.args.size)..] }
     end
 
-    # Stops interpretation (`.ex`, `.ab`).
+    # `.ex`, `.ab`.
     def halt : Nil
       @halted = true
     end
 
-    # Continues with *name* after the current file (`.nx`).
+    # `.nx`: continues with *name* after the current file.
     def next_file(name : String) : Nil
       @next_file = name
       @frames.each &.finish
@@ -733,7 +716,7 @@ module Docv::Roff
       @macros.delete(from).try { |body| @macros[to] = body }
     end
 
-    # The value of string *name* (macros join their lines).
+    # A multi-line macro joins its lines.
     def string(name : String) : String?
       @macros[name]?.try { |body| body.size == 1 ? body[0] : body.join('\n') }
     end
@@ -752,7 +735,7 @@ module Docv::Roff
       @c2 = char
     end
 
-    # `.ec`, `.eo`, `.ecs`, `.ecr`.
+    # `.ec`; `nil` restores the backslash.
     def escape_char(char : Char?) : Nil
       @escapes = true
       @ec = char || '\\'
@@ -801,7 +784,7 @@ module Docv::Roff
 
     # --- environments --------------------------------------------------------
 
-    # `.ev name`: pushes the current environment and switches.
+    # `.ev name`.
     def push_env(name : String) : Nil
       @env_stack << @env
       self.env = @envs[name] ||= begin
@@ -812,12 +795,12 @@ module Docv::Roff
       end
     end
 
-    # `.ev`: returns to the previous environment.
+    # `.ev` without a name.
     def pop_env : Nil
       @env_stack.pop?.try { |env| self.env = env }
     end
 
-    # `.evc name`: copies environment *name* into the current one.
+    # `.evc name`.
     def copy_env(name : String) : Nil
       @envs[name]?.try { |source| self.env = source.copy }
     end
@@ -834,8 +817,7 @@ module Docv::Roff
     property blank_macro : String?
     property space_macro : String?
 
-    # `.di`/`.da`/`.box`/`.boxa`: starts diverting input lines into *name*,
-    # or ends the innermost diversion when *name* is `nil`.
+    # `.di`/`.da`/`.box`/`.boxa`; a `nil` *name* ends the innermost diversion.
     def diversion(name : String?, append : Bool) : Nil
       if name
         lines = append ? (@macros[name]? || [] of String) : [] of String
@@ -911,7 +893,7 @@ module Docv::Roff
       end
     end
 
-    # The interpolated text of register *name*.
+    # `\n`: a nonzero *sign* auto-increments (`\n+x`); an unknown register is set to 0.
     def register_text(name : String, sign : Int32 = 0) : String
       if register = @registers[name]?
         value = sign == 0 ? register.value : @registers.step(name, sign)
@@ -924,7 +906,7 @@ module Docv::Roff
       "0"
     end
 
-    # The value of register *name* (0 when undefined).
+    # 0 when undefined.
     def register_value(name : String) : Int64
       @registers[name]?.try(&.value) || builtin_register(name) || 0_i64
     end

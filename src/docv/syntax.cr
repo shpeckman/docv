@@ -1,29 +1,17 @@
 # src/docv/syntax.cr
+
 require "treesitter"
 
 module Docv
-  # Syntax highlighting of code blocks through tree-sitter: a grammar (a
-  # shared library) and its `highlights.scm` query, both found where editors
-  # and tree-sitter install them (nvim, helix, `$XDG_DATA_HOME/tree-sitter`)
-  # or in docv's own data directory. docv ships
-  # neither; a language without both stays plain.
-  #
-  # Captures map to `Markup` by their name, the longest known dotted prefix
-  # first (`keyword.function` is a keyword). Within a code block an inner
-  # capture overrides the one around it; of two captures of the same node
-  # the later pattern wins (nvim's convention), or the earlier one for
-  # queries of directories marked `first_wins` (helix's).
-  #
-  # ```
-  # Docv::Syntax.highlight("x = 1 # one", "crystal") # => [[{"x", None}, ..., {"# one", SyntaxComment}]] or nil
-  # ```
+  # Syntax highlighting through tree-sitter: a grammar from
+  # `grammar_directories` and its `highlights.scm` from `query_directories`.
+  # docv ships neither; a language without both stays plain.
   module Syntax
-    # A directory of `<language>/highlights.scm` queries; *first_wins* when
-    # its queries give the earlier of two patterns of the same node priority.
+    # A directory of `<language>/highlights.scm` queries. Of two patterns on
+    # one node the later wins (nvim), or the earlier with *first_wins* (helix).
     record QueryDirectory, path : String, first_wins : Bool = false
 
-    # Code block labels (Markdown fence info) that name a grammar
-    # differently; other labels are grammar names themselves.
+    # Code block labels that differ from their grammar's name.
     ALIASES = {
       "cr" => "crystal", "sh" => "bash", "shell" => "bash", "zsh" => "bash", "console" => "bash",
       "js" => "javascript", "mjs" => "javascript", "jsx" => "javascript", "ts" => "typescript",
@@ -34,13 +22,12 @@ module Docv
       "html" => "html", "htm" => "html", "xml" => "xml", "scm" => "query",
     }
 
-    # Languages of the code examples of manual pages by the letters after
-    # their section number: `docv gen-cr` writes `Foo.3cr`.
+    # :nodoc:
+    # Example language by page section suffix (`Foo.3cr`).
     SECTION_LANGUAGES = {"cr" => "crystal"}
 
-    # Capture names (and their dotted prefixes) and what they mark. `None`
-    # marks a name as plain; names not listed are ignored, as are names
-    # starting with `_`.
+    # Capture names to `Markup`, matched by longest dotted prefix; `None` and
+    # unlisted names stay plain.
     CAPTURES = {
       "keyword" => Markup::SyntaxKeyword, "conditional" => Markup::SyntaxKeyword,
       "repeat" => Markup::SyntaxKeyword, "include" => Markup::SyntaxKeyword,
@@ -63,9 +50,9 @@ module Docv
       "none" => Markup::None, "conceal" => Markup::None,
     }
 
-    # The query file of a language in a query directory.
+    # :nodoc:
     QUERY_FILE = "highlights.scm"
-    # A query line naming the languages whose queries come first:
+    # :nodoc:
     # `; inherits: ecma,jsx` (nvim; a name in parentheses is optional).
     INHERITS = /\A;+\s*inherits\s*:?\s*(.+)/
 
@@ -78,7 +65,7 @@ module Docv
       "/usr/lib64/helix/runtime/grammars", "/usr/lib/helix/runtime/grammars", "/usr/share/helix/runtime/grammars",
     ]
 
-    # Query directories, searched in order for `<language>/highlights.scm`.
+    # Query directories, searched in order.
     class_property query_directories : Array(QueryDirectory) = [
       QueryDirectory.new(File.join(Docv.user_directory("XDG_DATA_HOME", ".local/share"), "queries")),
       QueryDirectory.new(File.join(Docv.base_directory("XDG_DATA_HOME", ".local/share"), "tree-sitter", "queries")),
@@ -91,28 +78,26 @@ module Docv
       QueryDirectory.new("/usr/share/helix/runtime/queries", true),
     ]
 
-    # A loaded language: its parser and compiled highlight query.
     private record Grammar, parser : TreeSitter::Parser, query : TreeSitter::Query, first_wins : Bool
 
     @@grammars = {} of String => Grammar?
 
-    # The grammar name of a code block *label* (`ALIASES`, lower case, first
-    # word of a fence info string); `nil` for an empty label.
+    # The grammar name of code block *label* (its first word, lower case,
+    # through `ALIASES`); `nil` when empty.
     def self.language(label : String) : String?
       name = label.split.first?.try(&.downcase) || return nil
       ALIASES[name]? || name
     end
 
-    # The language of the code examples of the manual page at *path*
-    # (`SECTION_LANGUAGES`), if any.
+    # :nodoc:
     def self.page_language(path : String?) : String?
       file = path.try { |current| File.basename(current) } || return nil
       _, section = Manpath.split(file) || return nil
       SECTION_LANGUAGES[section.lstrip("0123456789")]?
     end
 
-    # The lines of *code* as runs of text with their markup; `nil` when
-    # *language* has no grammar or no highlight query (or they do not fit).
+    # The lines of *code* as runs of text and markup; `nil` when *language*
+    # lacks a grammar or highlight query.
     def self.highlight(code : String, language : String) : Array(Array({String, Markup}))?
       grammar = grammar(language) || return nil
       marks = Array(Markup).new(code.bytesize, Markup::None)
@@ -131,9 +116,8 @@ module Docv
       nil
     end
 
-    # Highlights the consecutive *blocks* of one code example as *language*:
-    # each text block a line, each blank block that many empty lines. Spans
-    # of marked text keep their block's style with the markup set.
+    # Highlights *blocks*, the consecutive text and blank blocks of one code
+    # example, by setting the markup on their spans.
     def self.apply(blocks : Array(Block), language : String) : Nil
       lines = [] of String
       owners = [] of Block?
@@ -161,8 +145,7 @@ module Docv
       end
     end
 
-    # The markup of capture *name*: the longest of its dotted prefixes in
-    # `CAPTURES`; `nil` for plain and unknown names.
+    # :nodoc:
     def self.markup(name : String) : Markup?
       return nil if name.starts_with?('_')
       loop do
@@ -174,7 +157,7 @@ module Docv
       end
     end
 
-    # Forgets the loaded grammars, so changed directories take effect.
+    # Forgets loaded grammars, so changed directories take effect.
     def self.clear : Nil
       @@grammars.clear
     end
@@ -196,8 +179,7 @@ module Docv
       nil
     end
 
-    # The highlight query of *name* with the queries it inherits before it,
-    # and whether its directory gives the earlier pattern priority.
+    # Inherited queries come first in the returned text.
     private def self.query(name : String, seen : Set(String)) : {String, Bool}?
       return nil unless seen.add?(name)
       directory = query_directories.find { |dir| File.file?(File.join(dir.path, name, QUERY_FILE)) } || return nil
@@ -209,7 +191,7 @@ module Docv
       {parts.join('\n'), directory.first_wins}
     end
 
-    # The lines of *code* as runs of characters of one markup.
+    # *marks* holds one `Markup` per byte of *code*.
     private def self.runs(code : String, marks : Array(Markup)) : Array(Array({String, Markup}))
       lines = [[] of {String, Markup}]
       buffer = String::Builder.new

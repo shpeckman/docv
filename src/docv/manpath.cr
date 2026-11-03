@@ -1,72 +1,66 @@
 # src/docv/manpath.cr
+
 require "compress/gzip"
 
 module Docv
-  # The manual search path, and lookup of pages along it.
-  #
-  # A root is a tree of `man<section>` directories (`/usr/share/man`), or a
-  # flat directory with pages in it (a project's `doc/`). `Manpath.default`
-  # puts the man page directories of the current project first, then the
-  # directories added with `docv path-add` (`read_paths`), then the
-  # system path as man-db builds it (`system`). It also holds the
-  # project's Markdown documents (`Project#documents`).
-  #
-  # ```
-  # manpath = Docv::Manpath.default(Dir.current)
-  # manpath.find("printf", "3") # => "/usr/share/man/man3/printf.3.gz"
-  # ```
+  # The manual search path: man page directories (trees of `man<section>`
+  # directories, or flat directories of pages) searched in order, plus the
+  # current project's Markdown documents.
   class Manpath
-    # Section search order (man-db's default), then all other sections.
+    # Section search order (man-db's default); other sections come after.
     ORDER = %w(1 n l 8 3 0 2 3type 3posix 3pm 3perl 3am 5 4 9 6 7)
 
     # A section name: `1`, `3p`, `3type`, `n`, `l`.
     SECTION = /\A(?:[0-9][a-zA-Z0-9]*|n|l)\z/
 
-    # man-db configuration files, the first existing one is read.
+    # :nodoc:
+    # man-db configuration files; the first that exists is read.
     CONFIGS = ["/etc/man_db.conf", "/etc/manpath.config"]
-    # The mandatory directories when there is no man-db configuration.
+    # :nodoc:
+    # Mandatory directories without a man-db configuration.
     DEFAULTS = ["/usr/share/man", "/usr/local/share/man", "/usr/man"]
-    # Directories tried next to a `PATH` element without a `MANPATH_MAP`
-    # line, as man-db does.
+    # :nodoc:
+    # Tried next to a `PATH` element without a `MANPATH_MAP` line, as man-db does.
     NEIGHBORS = ["../man", "man", "../share/man", "share/man"]
 
-    # Files and directories that mark the root of a project.
+    # :nodoc:
+    # Files and directories that mark a project root.
     MARKERS = %w(.git .hg .svn .jj shard.yml Cargo.toml package.json go.mod pyproject.toml setup.py Gemfile
       pom.xml build.gradle CMakeLists.txt meson.build configure.ac Makefile makefile)
-    # Directories not searched for a project's pages, besides hidden ones.
+    # :nodoc:
+    # Skipped in a project walk, besides hidden directories.
     SKIP = Set{"node_modules", "vendor", "lib", "target", "__pycache__"}
-    # Levels below the project root searched for pages.
+    # :nodoc:
     MAX_DEPTH = 4
-    # Directories looked at in one project at most.
+    # :nodoc:
     MAX_DIRS = 2000
 
-    # The file of directories added with `docv path-add`.
-    PATHS_FILE   = "paths"
+    # :nodoc:
+    PATHS_FILE = "paths"
+    # :nodoc:
     PATHS_HEADER = "# Man page directories added with docv path-add, one per line.\n"
 
-    # A directory of pages: a tree of `man<section>` directories, or *flat*
-    # with the pages in it; *project* when it belongs to the project.
+    # :nodoc:
     record Root, path : String, flat : Bool = false, project : Bool = false
 
     # The project around a directory: its *root*, its man page directories
     # (*pages*) and its Markdown documents (*documents*), in search order.
     record Project, root : String, pages : Array(String), documents : Array(String)
 
-    # The `MANPATH_MAP` and `MANDATORY_MANPATH` lines of a man-db
-    # configuration.
+    # :nodoc:
     record ManDb, map : Hash(String, Array(String)), mandatory : Array(String)
 
-    # The roots in search order; the locale subdirectories of a tree come
-    # before it.
+    # :nodoc:
+    # In search order; a tree's locale subdirectories come before it.
     getter roots : Array(Root)
     # The project whose pages and documents come first, if any.
     getter project : Project?
 
     @listing = Hash(String, Array(String)).new
 
-    # The search path of *roots* in order, each a tree or flat directory
-    # (`Manpath.flat?`); missing and repeated directories are dropped. The
-    # roots among the pages of *project* are marked `Root#project`.
+    # The search path of *roots* in order, each a tree or a flat directory;
+    # missing and repeated directories are dropped, and a tree's *locale*
+    # subdirectories come first. *project* is returned by `#project`.
     def initialize(roots : Enumerable(String), locale : String? = Manpath.locale, @project : Project? = nil)
       variants = Manpath.locale_variants(locale)
       own = @project.try(&.pages.map { |dir| Manpath.absolute(dir) }.to_set) || Set(String).new
@@ -88,20 +82,16 @@ module Docv
       end
     end
 
-    # The search path of the `docv` command: the man page directories of
-    # the project around *dir* (`project`; none when `nil`), the added
-    # directories (`read_paths`), then the system path (`system`), with the
-    # project's documents.
+    # The search path of the `docv` command: the project around *dir* (if
+    # given), then the directories added with `docv path-add`, then the
+    # system path.
     def self.default(dir : String? = nil) : Manpath
       found = dir ? project(dir) : nil
       new((found.try(&.pages) || [] of String) + read_paths + system, project: found)
     end
 
-    # The system search path as man-db builds it (manpath(5)): *manpath*
-    # (`MANPATH`) with each empty component standing for the default path,
-    # or else the default path: for each element of *path* (`PATH`) its
-    # `MANPATH_MAP` directories, or the `NEIGHBORS` that exist, then the
-    # `MANDATORY_MANPATH` directories.
+    # The system search path as man-db builds it (manpath(5)) from *manpath*
+    # (`MANPATH`), *path* (`PATH`) and the man-db configuration.
     def self.system(manpath : String? = ENV["MANPATH"]?, path : String? = ENV["PATH"]?,
                     config : ManDb = man_db) : Array(String)
       default = derived(path, config)
@@ -125,8 +115,8 @@ module Docv
       dirs + config.mandatory
     end
 
-    # The man-db configuration from the first of *files* that exists; with
-    # none, no maps and `DEFAULTS` as the mandatory directories.
+    # :nodoc:
+    # Without a configuration file: no maps, `DEFAULTS` mandatory.
     def self.man_db(files : Array(String) = CONFIGS) : ManDb
       file = files.find { |candidate| File.file?(candidate) }
       return ManDb.new(Hash(String, Array(String)).new, DEFAULTS) unless file
@@ -135,8 +125,7 @@ module Docv
       ManDb.new(Hash(String, Array(String)).new, DEFAULTS)
     end
 
-    # Reads the `MANPATH_MAP` and `MANDATORY_MANPATH` lines of a man-db
-    # configuration.
+    # :nodoc:
     def self.parse_man_db(text : String) : ManDb
       map = {} of String => Array(String)
       mandatory = [] of String
@@ -154,9 +143,9 @@ module Docv
       ManDb.new(map, mandatory)
     end
 
-    # The project root around *dir*: the nearest directory from *dir* up
-    # that holds one of `MARKERS`, below the home directory; without one,
-    # *dir* itself unless it is the home directory or `/`.
+    # The project root around *dir*: the nearest directory below the home
+    # directory with a project marker (`.git`, `shard.yml`, ...), else *dir*
+    # itself; `nil` when that is the home directory or `/`.
     def self.project_root(dir : String) : String?
       start = Path[dir].expand(home: true).to_s
       home = Path.home.to_s
@@ -170,18 +159,14 @@ module Docv
       start == home || start == "/" ? nil : start
     end
 
-    # The man page directories of the project around *dir*
-    # (`project`).
+    # The man page directories of the project around *dir*.
     def self.discover(dir : String) : Array(String)
       project(dir).try(&.pages) || [] of String
     end
 
-    # The project around *dir* (`project_root`) with its man page
-    # directories (trees and directories with pages) and its Markdown
-    # documents (`Markdown.file?`, not hidden), found breadth-first up to
-    # `MAX_DEPTH` levels and `MAX_DIRS` directories below the root,
-    # skipping hidden directories, `SKIP` and symbolic links. A tree is not
-    # searched further. `nil` without a project root.
+    # The project around *dir* (`project_root`) with the man page directories
+    # and Markdown documents found a few levels below its root, skipping
+    # hidden and vendored directories; `nil` without a project root.
     def self.project(dir : String) : Project?
       root = project_root(dir) || return nil
       pages = [] of String
@@ -213,8 +198,7 @@ module Docv
       Project.new(root, pages, documents)
     end
 
-    # True for a directory with pages in it and no `man<section>`
-    # directories.
+    # True for a directory with pages in it and no `man<section>` directories.
     def self.flat?(dir : String) : Bool
       children = entries(dir)
       children.none? { |child| section_dir?(dir, child) } && children.any? { |child| page?(File.join(dir, child)) }
@@ -226,8 +210,8 @@ module Docv
       children.any? { |child| section_dir?(dir, child) } || children.any? { |child| page?(File.join(dir, child)) }
     end
 
-    # True for a file named like a page (`split`) whose text, gzip or not,
-    # starts with a roff control character.
+    # True for a file named like a page (`split`) whose text, gzipped or
+    # not, starts with a roff control character.
     def self.page?(path : String) : Bool
       return false unless split(File.basename(path)) && File.file?(path)
       File.open(path) do |file|
@@ -244,10 +228,9 @@ module Docv
       false
     end
 
-    # Splits a page file name into name and section: `printf.3.gz` is
-    # `{"printf", "3"}`. In a section directory (*section* given) the
-    # extension must start like the section; elsewhere it must be a section
-    # name (`SECTION`). `nil` for other files.
+    # Splits a page file name into name and section: `printf.3.gz` gives
+    # `{"printf", "3"}`. The extension must start like *section* when given,
+    # else match `SECTION`; `nil` otherwise.
     def self.split(file : String, section : String = "") : {String, String}?
       base = file.rchop(".gz")
       dot = base.rindex('.') || return nil
@@ -257,14 +240,13 @@ module Docv
       fits ? {base[0, dot], ext} : nil
     end
 
-    # The file of added directories: `$XDG_CONFIG_HOME/docv/paths`, or
-    # `~/.config/docv/paths`.
+    # The file of directories added with `docv path-add`:
+    # `$XDG_CONFIG_HOME/docv/paths`.
     def self.paths_file : String
       File.join(Docv.user_directory("XDG_CONFIG_HOME", ".config"), PATHS_FILE)
     end
 
-    # The added directories, one per line of *file*; lines starting with
-    # `#` are comments.
+    # The added directories listed in *file*.
     def self.read_paths(file : String = paths_file) : Array(String)
       return [] of String unless File.file?(file)
       File.read_lines(file).map(&.strip).reject { |line| line.empty? || line.starts_with?('#') }
@@ -288,7 +270,7 @@ module Docv
       removed
     end
 
-    # *dir* as an absolute path (`~` expanded).
+    # :nodoc:
     def self.absolute(dir : String) : String
       Path[dir].expand(home: true).to_s
     end
@@ -308,15 +290,15 @@ module Docv
       [] of String
     end
 
-    # The message locale from the environment, `nil` for C/POSIX.
+    # The message locale from the environment; `nil` for C/POSIX.
     def self.locale : String?
       value = ENV["LC_ALL"]?.presence || ENV["LC_MESSAGES"]?.presence || ENV["LANG"]?.presence
       return nil if value.nil? || value == "C" || value == "POSIX" || value.starts_with?("C.")
       value
     end
 
-    # Locale directory names to try, most specific first: `nl_NL.UTF-8`,
-    # `nl_NL`, `nl`.
+    # :nodoc:
+    # Most specific first: `nl_NL.UTF-8`, `nl_NL`, `nl`.
     def self.locale_variants(locale : String?) : Array(String)
       return [] of String unless locale
       variants = [locale] of String
@@ -326,7 +308,8 @@ module Docv
       variants.uniq
     end
 
-    # Parses `name(sec)` references; returns `{name, section}`.
+    # Splits a `name(section)` reference into `{name, section}`; the section
+    # is `nil` for other text.
     def self.parse_reference(text : String) : {String, String?}
       if match = text.match(/\A(.+)\(([0-9a-zA-Z]+)\)\z/)
         {match[1], match[2]}
@@ -335,15 +318,13 @@ module Docv
       end
     end
 
-    # Sort key of a section in search order: its place in `ORDER` (sections
-    # not listed come last), then its name.
+    # Sort key of *section* in search order (`ORDER`, then by name).
     def self.rank(section : String) : {Int32, String}
       {ORDER.index(section) || ORDER.size, section}
     end
 
-    # Finds the file of *name*, in *section* when given (a section prefix like
-    # `3` also matches `3p`, `3type`). Sections go in search order, roots in
-    # path order within each.
+    # The file of page *name*, in *section* when given (`3` also matches
+    # `3p`, `3type`); `nil` when not found.
     def find(name : String, section : String? = nil) : String?
       sections(section).each do |sec, exact|
         @roots.each do |root|

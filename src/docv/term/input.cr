@@ -1,47 +1,52 @@
 # src/docv/term/input.cr
+
 module Docv::Term
-  # Text input: a key that produced text with no command modifier.
+  # :nodoc:
+  # A key that produced text with no command modifier.
   record TextInput, text : String, key : KeyEvent
 
-  # A key command: any other key press or repeat.
+  # :nodoc:
+  # Any other key press or repeat.
   record KeyCommand, key : KeyEvent
 
-  # A mouse button went down, in cell coordinates.
+  # :nodoc:
   record MousePress, button : MouseButton, col : Int32, row : Int32, mods : Mods
 
-  # Press and release of one button in place; `count` 1-3 for single to
-  # triple clicks.
+  # :nodoc:
+  # `count` is 1 to 3 for single to triple clicks.
   record Click, button : MouseButton, count : Int32, col : Int32, row : Int32, mods : Mods
 
+  # :nodoc:
   enum DragPhase : UInt8
     Start
     Move
     End
   end
 
-  # A drag gesture bracketed into start, moves and end.
+  # :nodoc:
   record Drag, phase : DragPhase, button : MouseButton, col : Int32, row : Int32,
     start_col : Int32, start_row : Int32, mods : Mods
 
-  # Coalesced wheel reports: positive `dy` scrolls down, positive `dx` right.
+  # :nodoc:
+  # Coalesced wheel steps: positive `dy` scrolls down, positive `dx` right.
   record Scroll, dx : Int32, dy : Int32, col : Int32, row : Int32, mods : Mods
 
-  # The pointer entered or left the window.
+  # :nodoc:
   record PointerEnter, col : Int32, row : Int32
+  # :nodoc:
   record PointerLeave, col : Int32, row : Int32
 
+  # :nodoc:
   # The pointer moved with no button held.
   record PointerMove, col : Int32, row : Int32, mods : Mods
 
+  # :nodoc:
   alias Derived = TextInput | KeyCommand | MousePress | Click | Drag | Scroll | PointerEnter | PointerLeave | PointerMove |
                   ResizeEvent | FocusEvent | VisibilityEvent | ColorSchemeEvent | ModeReport | CellSizeReport |
                   KeyboardFlagsReport | ColorsReport
 
-  # Turns raw events into the derived events a viewer consumes: the key
-  # pressed-set, text-versus-command classification, clicks and
-  # multi-clicks, drag lifecycle, scroll accumulation and pointer
-  # enter, move and leave. Mouse pixel coordinates convert to cells with the current
-  # cell size.
+  # :nodoc:
+  # Derives text, commands, clicks, drags and scrolls from raw events, in cells.
   class Input
     # Longest press that still counts as a click.
     CLICK_TIME = 500.milliseconds
@@ -51,10 +56,10 @@ module Docv::Term
     # A key in the pressed-set.
     record Held, pressed_at : Time::Instant, last_repeat_at : Time::Instant, repeat_count : Int32, mods : Mods
 
-    # Cell size in pixels (from the window size or terminal reports).
+    # Cell size in pixels, from the window size or a report.
     property cell_width : Int32 = 0
     property cell_height : Int32 = 0
-    # True when mouse reports carry pixels (mode 1016 is active).
+    # Mouse reports carry pixels (mode 1016).
     property? pixels : Bool = false
 
     getter held = Hash(Int32, Held).new
@@ -71,12 +76,10 @@ module Docv::Term
     @scroll_dy = 0
     @scroll_mods = Mods::None
 
-    # True while bytes of an incomplete sequence wait for more input.
     def pending? : Bool
       @decoder.pending?
     end
 
-    # Decodes *bytes* and yields derived events.
     def feed(bytes : Bytes, & : Derived ->) : Nil
       @decoder.feed(bytes) { |event| handle(event) { |derived| yield derived } }
       flush_scroll { |derived| yield derived }
@@ -88,7 +91,7 @@ module Docv::Term
       flush_scroll { |derived| yield derived }
     end
 
-    # Sets the cell size from the window's pixel and cell extents.
+    # Sets the cell size from the window's cell and pixel extents.
     def window(rows : Int32, cols : Int32, width : Int32, height : Int32) : Nil
       return if rows <= 0 || cols <= 0 || width <= 0 || height <= 0
       @cell_width = width // cols

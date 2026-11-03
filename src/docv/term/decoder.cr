@@ -1,24 +1,21 @@
 # src/docv/term/decoder.cr
+
 module Docv::Term
-  # Decodes terminal input bytes into raw events: kitty `CSI u` keys and
-  # their legacy letter/tilde forms, plain UTF-8 and control bytes, SGR
-  # mouse reports, terminal notifications and OSC 21 color reports.
-  # Incomplete sequences wait for more bytes; `flush` resolves them (a lone
-  # ESC is the Escape key, an unterminated `ESC ]` is Alt-]).
+  # :nodoc:
+  # Decodes input bytes into raw events; incomplete sequences wait for more.
   class Decoder
     # Longest control sequence accepted before it is discarded.
     MAX_SEQUENCE = 512
-    # Longest operating system command (`ESC ] ... ST`) accepted.
+    # Longest OSC (`ESC ] ... ST`) accepted.
     MAX_OSC = 8192
 
     @pending = Bytes.empty
 
-    # True when bytes of an incomplete sequence are buffered.
     def pending? : Bool
       !@pending.empty?
     end
 
-    # Decodes *bytes*, yielding every complete event.
+    # Yields every complete event; the rest stays buffered.
     def feed(bytes : Bytes, & : Event ->) : Nil
       data = @pending.empty? ? bytes : concat(@pending, bytes)
       pos = 0
@@ -30,7 +27,7 @@ module Docv::Term
       @pending = pos < data.size ? data[pos..].dup : Bytes.empty
     end
 
-    # Resolves buffered bytes after an input timeout.
+    # Resolves buffered bytes after an input timeout: a lone ESC is Escape, `ESC ]` is Alt-].
     def flush(& : Event ->) : Nil
       data = @pending
       @pending = Bytes.empty
@@ -152,8 +149,7 @@ module Docv::Term
       index + 1 - pos
     end
 
-    # `ESC ] body ST`, ST being `ESC \` or BEL. Without a terminator by the
-    # input timeout it is the key Alt-].
+    # `ESC ] body ST` (ST is `ESC \` or BEL); unterminated at the timeout it is Alt-].
     private def osc(data : Bytes, pos : Int32, final : Bool, & : Event ->) : Int32
       index = pos + 2
       while index < data.size

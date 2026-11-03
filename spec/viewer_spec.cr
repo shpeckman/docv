@@ -414,6 +414,15 @@ describe Docv::Viewer::Picker::Outline do
     labels.call(picker).first.should eq "git/"
   end
 
+  it "puts items before subgroups inside a group, and mixes them at the top" do
+    names = %w(abrt-action-x abrt-action-y abrt-action-z abrt-zz abrt-b zoo)
+    items = names.map_with_index { |name, index| Docv::Viewer::Picker::Item.new(name, "", index, key: name) }
+    outline = Docv::Viewer::Picker::Outline.new(items)
+    outline.roots.map { |id| outline.nodes[id].text }.should eq ["abrt", "zoo"]
+    abrt = outline.nodes[outline.roots[0]]
+    abrt.children.map { |id| outline.nodes[id].text }.should eq ["b", "zz", "action"]
+  end
+
   it "keeps groups apart by item group" do
     grouped = %w(a-x a-y a-z a-w).map_with_index do |name, index|
       Docv::Viewer::Picker::Item.new(name, "", index, group: index % 2, key: name)
@@ -461,6 +470,24 @@ describe Docv::Viewer::Picker::Outline do
     picker.query = "oops"
     picker.unfold(100)
     picker.rows.size.should eq 3
+  end
+
+  it "draws tree lines and group marks" do
+    picker = Docv::Viewer::Picker.new(pages, nested: true)
+    picker.unfold(100)
+    screen = Docv::Screen.new(20, 40)
+    styles = Docv::Theme.new.styles(Docv::Palette.new(true), Docv::ColorDepth::TrueColor)
+    picker.draw(screen, 0, 0, 20, 40, styles, details: false)
+    text = (0...7).map { |row| (1...20).join { |col| screen[row, col].ch }.rstrip }
+    text.should eq ["○ abrt", "├╴abrt(1)", "├╴cli(1)", "╰╴○ dump", "  ├╴journal-core(1)", "  ├╴oops(1)", "  ╰╴xorg(1)"]
+    names = %w(a-b-1 a-b-q-x a-b-q-y a-b-q-z a-c-1 a-c-2 a-c-3)
+    items = names.map_with_index { |name, index| Docv::Viewer::Picker::Item.new(name, "", index, key: name) }
+    nested = Docv::Viewer::Picker.new(items, nested: true)
+    nested.unfold(100)
+    screen = Docv::Screen.new(20, 40)
+    nested.draw(screen, 0, 0, 20, 40, styles, details: false)
+    text = (0...11).map { |row| (1...20).join { |col| screen[row, col].ch }.rstrip }
+    text.should eq ["○ a", "├╴○ b", "│ ├╴1", "│ ╰╴○ q", "│ ╎ ├╴x", "│ ╎ ├╴y", "│ ╎ ╰╴z", "╰╴○ c", "  ├╴1", "  ├╴2", "  ╰╴3"]
   end
 
   it "counts the items with hits in each group" do

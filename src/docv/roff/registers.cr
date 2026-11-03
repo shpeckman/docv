@@ -1,8 +1,9 @@
 # src/docv/roff/registers.cr
+
+# :nodoc:
 module Docv::Roff
   # User number registers (`.nr`, `.af`, `.rr`, `.rnn`, `.aln`).
   class Registers
-    # A register: value, auto-increment and output format.
     class Register
       property value : Int64
       property increment : Int64
@@ -14,20 +15,17 @@ module Docv::Roff
 
     @registers = Hash(String, Register).new
 
-    # The register *name*, if defined.
     def []?(name : String) : Register?
       @registers[name]?
     end
 
-    # Defines or sets *name*.
     def set(name : String, value : Int64, increment : Int64? = nil) : Nil
       register = @registers[name] ||= Register.new
       register.value = value
       increment.try { |step| register.increment = step }
     end
 
-    # Applies the auto-increment of *name* (`\n+x`, `\n-x`) and returns the
-    # new value.
+    # Auto-increments *name* in the direction of *sign* (`\n+x`, `\n-x`); returns the new value.
     def step(name : String, sign : Int32) : Int64
       register = @registers[name] ||= Register.new
       register.value = register.value &+ (register.increment &* sign)
@@ -54,8 +52,7 @@ module Docv::Roff
       @registers.has_key?(name)
     end
 
-    # Formats *value* per a `.af` format: `0`/`1` decimal (digits give the
-    # minimum width), `i`/`I` roman, `a`/`A` alphabetic.
+    # `.af` formats: `0`/`001` decimal (digits set the width), `i`/`I` roman, `a`/`A` letters.
     def self.render(value : Int64, format : String) : String
       case format
       when "i" then roman(value).downcase

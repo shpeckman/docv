@@ -1,32 +1,16 @@
 # src/docv/viewer/viewer.cr
+
 module Docv
-  # A full-screen terminal viewer for a `Document`: a manual page or a
-  # Markdown document. The title row holds the title (a click opens the
-  # help), the page's heading centered (the manual and the page reference,
-  # or the file name and first heading of a document; the page footer's
-  # source and date beside it under the pointer) and a close mark; below it
-  # a framed page whose right and bottom borders are draggable scrollbars,
-  # and a status row. The page lays out wrapped or unwrapped and has links with back navigation
-  # (cross-references, files, heading anchors; URLs go to the terminal as
-  # OSC 8 hyperlinks) and mouse text selection copied to the clipboard.
-  #
-  # A dock (`Dock`) left of the page holds the search field and the tree of
-  # the current page's group, or of the project's pages and documents
-  # (`Index`), names sharing a prefix folded into nested groups
-  # (`Picker::Outline`), the current page selected. Text in the field
-  # fuzzy-finds in the lines of the displayed page, highlighting the matches
-  # in place and scrolling to the best one, while the tree shows how many
-  # lines of its pages match (`Corpus`); text that starts with `/` ranks
-  # every page of the manual instead. The mouse pointer takes the shape of
-  # what it is over (OSC 22).
+  # A full-screen terminal viewer for a `Document` (manual page or Markdown):
+  # wrapped or unwrapped layout, links with back navigation, mouse selection,
+  # and a dock to find in the page or search every page.
   #
   # ```
   # Docv::Viewer.new(Docv.open("ls", "1").not_nil!).run
   # ```
   #
-  # Without a document the viewer starts on an empty page, the dock closed;
-  # performing `Action::OpenPage` before `run` starts in a search of every
-  # page:
+  # Without a document it starts on an empty page; performing
+  # `Action::OpenPage` before `run` starts in a search of every page:
   #
   # ```
   # viewer = Docv::Viewer.new
@@ -34,35 +18,38 @@ module Docv
   # viewer.run
   # ```
   class Viewer
-    # Columns moved by one horizontal step and lines by one wheel notch.
+    # :nodoc:
     HORIZONTAL_STEP = 8
-    WHEEL_LINES     = 3
-    # Timeout that resolves a lone ESC byte.
+    # :nodoc:
+    WHEEL_LINES = 3
+    # :nodoc:
+    # Resolves a lone ESC byte.
     ESCAPE_TIMEOUT = 50.milliseconds
-    # Index entries described between two yields to the input loop.
+    # :nodoc:
+    # Index entries described between yields to the input loop.
     INDEX_BATCH = 16
-    # Shortest interval between refreshes while the index is described or
-    # the text of the pages is read.
+    # :nodoc:
+    # Shortest interval between progress refreshes.
     INDEX_REFRESH = 250.milliseconds
 
-    # Between the parts of the status row.
+    # :nodoc:
     STATUS_SEPARATOR = " │ "
-    # Between the parts of the page's heading in the title row.
+    # :nodoc:
     HEADING_SEPARATOR = " - "
 
-    # Page text attributes and the roles that restyle them, most specific
-    # first; the roles replace `TEXT_ATTRS`. Text a page colors itself keeps
-    # its colors.
+    # :nodoc:
+    # Text attributes and the roles that replace them, most specific first.
     TEXT_ROLES = [
       {Attr::Bold | Attr::Italic, Theme::Role::BoldItalic},
       {Attr::Bold, Theme::Role::Bold},
       {Attr::Italic, Theme::Role::Italic},
       {Attr::Underline, Theme::Role::Underline},
     ]
+    # :nodoc:
     TEXT_ATTRS = Attr::Bold | Attr::Italic | Attr::Underline
 
-    # Roles of marked page text (`Style#markup`), put on top of its text
-    # role.
+    # :nodoc:
+    # Roles of `Style#markup`, merged over the text role.
     MARKUP_ROLES = {
       Markup::Code => Theme::Role::Code, Markup::CodeBlock => Theme::Role::CodeBlock,
       Markup::Quote => Theme::Role::Quote, Markup::Rule => Theme::Role::Rule, Markup::Image => Theme::Role::Image,
@@ -73,34 +60,41 @@ module Docv
       Markup::SyntaxProperty => Theme::Role::SyntaxProperty, Markup::SyntaxTag => Theme::Role::SyntaxTag,
     }
 
-    # Roles of whole heading lines by `Block#level`, from level 1.
+    # :nodoc:
+    # Heading line roles by `Block#level`.
     HEADING_ROLES = [
       Theme::Role::Heading1, Theme::Role::Heading2, Theme::Role::Heading3,
       Theme::Role::Heading4, Theme::Role::Heading5, Theme::Role::Heading6,
     ]
 
-    # Characters a double click selects along with letters and digits, so
-    # it takes `--color` and `snake_case` whole.
+    # :nodoc:
+    # Word characters besides alphanumerics, so a double click takes `--color`.
     WORD_CHARS = Set{'_', '-'}
 
-    # What a double click selects a run of: a word or punctuation.
+    # :nodoc:
     enum CharClass
       Blank
       Word
       Punctuation
     end
 
-    # Groups of the page search: the project's pages and documents first.
+    # :nodoc:
+    # Page search groups; the project's entries rank first.
     PROJECT_GROUP = 0
-    OTHER_GROUP   = 1
-    # Key of the dock's tree while it shows the project's pages; a page in
-    # no group has a key below it.
+    # :nodoc:
+    OTHER_GROUP = 1
+    # :nodoc:
+    # Group key of the project's pages; a page in no group gets a key below it.
     PROJECT_KEY = -1
+    # :nodoc:
+    # The group of the Markdown documents in the trees.
+    DOCUMENT_FOLDER = "Markdown"
 
-    # Shown on the empty start page.
+    # :nodoc:
     START_HINT = "p: this folder's pages │ /: search every page │ h: help"
 
-    # What lies under the mouse pointer, for its shape.
+    # :nodoc:
+    # What lies under the pointer, for its shape.
     enum Hover
       Plain
       Text
@@ -110,19 +104,21 @@ module Docv
       Grabbed
     end
 
-    # The CSS cursor names of the pointer shapes (OSC 22).
+    # :nodoc:
+    # CSS cursor names (OSC 22).
     POINTER_SHAPES = {
       Hover::Plain => "default", Hover::Text => "text", Hover::Link => "pointer",
       Hover::Resize => "ew-resize", Hover::Thumb => "grab", Hover::Grabbed => "grabbing",
     }
 
-    # A loaded page.
+    # A shown document and the file it was loaded from, if any.
     record Page, document : Document, path : String?
 
-    # Where the reader was on a page, for back navigation.
+    # :nodoc:
+    # A reading position, for back navigation.
     record Position, page : Page, block : Int32, offset : Int32, left : Int32, wrap : Bool
 
-    # What a left-button drag moves.
+    # :nodoc:
     enum DragTarget
       None
       Content
@@ -141,11 +137,17 @@ module Docv
       Field
     end
 
+    # The page shown.
     getter page : Page
+    # Whether the page is laid out wrapped.
     getter? wrap : Bool
+    # What has the keyboard.
     getter focus : Focus = Focus::Page
+    # Key bindings of the page view.
     property bindings : Bindings = Bindings.new
+    # Key bindings of the dock's search field.
     property field_bindings : FieldBindings = FieldBindings.new
+    # Key bindings of the dock's tree.
     property tree_bindings : TreeBindings = TreeBindings.new
 
     @tty : Term::Tty
@@ -164,7 +166,7 @@ module Docv
     @left = 0
     @history = [] of Position
     @dock : Dock
-    # Finding in the page: one item per line of the layout.
+    # Finding in the page: one item per layout line.
     @finder : Picker? = nil
     @help : Help? = nil
     @found = Set(Int32).new
@@ -172,17 +174,17 @@ module Docv
     @index_progress : {Int32, Int32}? = nil
     @corpus : Corpus? = nil
     @search_threads : Int32
+    @min_group : Int32
     @text_progress : {Int32, Int32}? = nil
-    # Bumped by every search across pages; a search whose number is no
-    # longer current stops and is dropped.
+    # Bumped per search across pages; a stale search stops.
     @hit_generation = Atomic(Int32).new(0)
-    # The latest hit counts, per index entry.
+    # Hit counts per index entry.
     @hit_counts : Array(Int32)? = nil
-    # Key of the pages in the group's tree (`group_of`).
+    # Key of the group's tree (`group_of`).
     @group_key : Int32? = nil
-    # The outline of every page, to find the group of a page.
+    # Outline of every page, for `group_of`.
     @outline : Picker::Outline? = nil
-    # True while the field held a manual search.
+    # Whether the field last held a manual search.
     @manual_view = false
     # The pointer shape last set.
     @hover = Hover::Plain
@@ -202,30 +204,27 @@ module Docv
     @drag_grab = 0
     @press_target = DragTarget::None
 
-    # *options* (unsafe requests, syntax highlighting) applies to pages
-    # opened through links and the page search; `.rd` never reads there,
-    # since the terminal belongs to the viewer.
-    # *theme* styles the viewer (`Config#theme`); its colors follow the
-    # terminal theme once the terminal answers the OSC 21 query, and are
-    # off with `NO_COLOR` (*depth*). *settings* places the dock and sets
-    # the threads that search the text of all pages (`Config#viewer`).
+    # Creates a viewer showing *document*, loaded from *path* if any. *options*
+    # applies to pages opened from the viewer, ignoring its `stdin`; *theme*
+    # and *depth* set the colors, *settings* the dock (`Config#picker`).
     def initialize(document : Document = Document.new, path : String? = nil, @wrap : Bool = true,
                    @manpath : Manpath = Manpath.default, @tty : Term::Tty = Term::Tty.new,
                    options : Options = Options.new, @theme : Theme = Theme.new,
-                   @depth : ColorDepth = Term::Tty.color_depth, settings : ViewerSettings = ViewerSettings.new)
+                   @depth : ColorDepth = Term::Tty.color_depth, settings : PickerSettings = PickerSettings.new)
       @options = options.copy_with(stdin: nil)
       @page = Page.new(document, path)
       @screen = Screen.new(@frame.rows, @frame.cols)
       @palette = Palette.new(@dark)
       @dock = Dock.new(settings.dock_width, settings.dock, false)
       @search_threads = settings.search_threads
+      @min_group = settings.min_group
       @message = START_HINT if blank_page?
       apply_colors
       open_dock if settings.dock_open
     end
 
-    # Runs the viewer until the user quits. Restores the terminal on exit and
-    # saves the page search index.
+    # Runs until the user quits, then restores the terminal and saves the
+    # page index cache.
     def run : Nil
       @tty.enter
       @running = true
@@ -291,7 +290,6 @@ module Docv
       @frame.content_cols
     end
 
-    # Rows of the page body.
     private def page_rows : Int32
       content_rows
     end
@@ -322,8 +320,7 @@ module Docv
       refit(rows, cols)
     end
 
-    # Lays the frame out for *rows* × *cols* with the dock as it is, and the
-    # page for the content width.
+    # Rebuilds the frame around the dock and lays the page out for its width.
     private def refit(rows : Int32 = @frame.rows, cols : Int32 = @frame.cols) : Nil
       anchor = anchor_of(@top)
       @frame = Frame.new(rows, cols, @dock.offset(cols))
@@ -342,8 +339,7 @@ module Docv
       {line.block, line.offset}
     end
 
-    # The page body for the content width, without the header and footer,
-    # whose text the title row shows instead.
+    # Without header and footer: the title row shows them.
     private def layout(wrap : Bool) : Array(Layout::Line)
       @layouts[{content_cols, wrap}] ||= Layout.new(@page.document).lines(content_cols, wrap, header: false, footer: false)
     end
@@ -460,8 +456,7 @@ module Docv
       clamp
     end
 
-    # Scrolls the help with the scrolling keys, both ways; any other key
-    # closes it.
+    # Scrolling keys scroll the help; any other key closes it.
     private def help_key(event : Term::KeyEvent) : Nil
       help = @help || return
       rows = help.rows(@frame)
@@ -502,7 +497,6 @@ module Docv
       end
     end
 
-    # Opens the dock with the tree on the current page.
     private def open_dock : Nil
       return if @dock.open?
       @dock.open = true
@@ -516,26 +510,24 @@ module Docv
       refit
     end
 
-    # The tree the dock shows: every page during a manual search, otherwise
-    # the current page's group.
+    # Every page during a manual search, otherwise the current page's group.
     private def tree : Picker
       @dock.manual? ? all_pages : group_tree
     end
 
-    # The tree of every page, built on first use.
     private def all_pages : Picker
-      @dock.pages ||= Picker.new(page_items(load_index), nested: true)
+      @dock.pages ||= Picker.new(page_items(load_index), nested: true, min_group: @min_group)
     end
 
-    # The tree of the current page's group (`group_of`), built again when
-    # the page is in another one, with as many groups unfolded as fit.
+    # The current page's group (`group_of`), rebuilt when the group changes.
     private def group_tree : Picker
       index = load_index
       current = entry_number(index)
       key, members = group_of(index, current)
       picker = @dock.group
       if picker.nil? || key != @group_key
-        picker = Picker.new(members.map { |number| page_item(index.entries[number], number) }, nested: true)
+        picker = Picker.new(members.map { |number| page_item(index.entries[number], number) }, nested: true,
+          min_group: @min_group)
         rows = @dock.tree_rows(@frame)
         picker.reveal(current, rows) if current
         picker.unfold(rows)
@@ -546,10 +538,9 @@ module Docv
       picker
     end
 
-    # The pages the tree shows around page *number*, with a key that names
-    # them: the project's pages and documents for one of them, or without a
-    # page (`PROJECT_KEY`); the outermost group of a page in one (its node
-    # id); the page alone otherwise.
+    # Key and entries of the group around page *number*: the project
+    # (`PROJECT_KEY`) for a project page or none, else the page's outermost
+    # outline group (its node id), else the page alone.
     private def group_of(index : Index, number : Int32?) : {Int32, Array(Int32)}
       entries = index.entries
       if number.nil? || entries[number].project?
@@ -565,14 +556,12 @@ module Docv
       root < 0 ? {PROJECT_KEY - 1 - number, [number]} : {root, outline.items(root)}
     end
 
-    # Selects the current page in the group's tree.
     private def reveal_current : Nil
       tree = group_tree
       number = entry_number(load_index) || return
       tree.reveal(number, @dock.tree_rows(@frame))
     end
 
-    # Gives the search field the keyboard with *text* typed in.
     private def focus_field(text : String) : Nil
       open_dock
       @focus = Focus::Field
@@ -588,9 +577,8 @@ module Docv
       field_changed
     end
 
-    # Applies the field: a manual search ranks the tree; other text finds
-    # in the page (scrolling to the best match) and counts the matching
-    # lines of every page for the tree.
+    # A leading `/` searches every page; other text finds in the page and
+    # counts hits per page.
     private def field_changed : Nil
       if @dock.manual?
         @finder = nil
@@ -631,8 +619,8 @@ module Docv
       end
     end
 
-    # Moves by *delta* through the tree, or through the matches in the page
-    # while finding in it (scrolling to the new one).
+    # Moves through the page's matches while finding in it, otherwise
+    # through the tree.
     private def step(delta : Int32) : Nil
       finder = @finder
       if finder.nil? || @dock.manual? || @dock.field.empty?
@@ -644,9 +632,6 @@ module Docv
       reveal_match
     end
 
-    # Opens the selected page of a manual search (or folds and unfolds the
-    # selected group); finding in the page gives the page the keyboard at
-    # the match.
     private def accept : Nil
       if @dock.manual?
         tree_open(tree)
@@ -655,8 +640,7 @@ module Docv
       end
     end
 
-    # Runs the tree binding of *event*; false when there is none, so the
-    # page view takes the key.
+    # False when *event* is unbound, so the page view takes it.
     private def tree_key(event : Term::KeyEvent) : Bool
       action = @tree_bindings.lookup(event) || return false
       tree = self.tree
@@ -681,10 +665,8 @@ module Docv
       true
     end
 
-    # Opens the selected page of *tree* unless it is the current one, or
-    # folds or unfolds the selected group. A page picked in a manual search
-    # ends the search: the field is emptied, the tree goes back to the
-    # page's group, and the page gets the keyboard.
+    # Opens the selected page or toggles the selected group; a page picked
+    # in a manual search ends the search.
     private def tree_open(tree : Picker) : Nil
       return tree.toggle(@dock.tree_rows(@frame)) if tree.group?
       item = tree.current || return
@@ -708,12 +690,11 @@ module Docv
 
     # --- finding in the page -------------------------------------------------
 
-    # One item per line of the displayed layout; item index is line index.
+    # Item index is line index.
     private def line_items : Array(Picker::Item)
       @lines.map_with_index { |line, index| Picker::Item.new(line.text, target: index) }
     end
 
-    # Finds *text* in the lines of the page and scrolls to the best match.
     private def find(text : String) : Nil
       finder = @finder ||= Picker.new(line_items, search_details: false)
       finder.query = text
@@ -721,7 +702,7 @@ module Docv
       reveal_match
     end
 
-    # Matches the query again in a new layout of the page.
+    # Re-runs the query on a new layout.
     private def refind : Nil
       return unless finder = @finder
       query = finder.query
@@ -731,8 +712,7 @@ module Docv
       @found = query.blank? ? Set(Int32).new : finder.results.to_set
     end
 
-    # The selected match: its line and the screen-independent columns of
-    # its matched characters.
+    # The selected match's line and its matched page columns.
     private def current_match : {Int32, Array(Int32)}?
       return nil if @found.empty?
       finder = @finder || return nil
@@ -740,7 +720,7 @@ module Docv
       {index, match_columns(index)}
     end
 
-    # Columns of the characters of line *index* the query matched.
+    # Page columns of the characters of line *index* the query matched.
     private def match_columns(index : Int32) : Array(Int32)
       finder = @finder || return [] of Int32
       _, columns = @lines[index].text_columns
@@ -768,9 +748,8 @@ module Docv
 
     # --- finding across pages ------------------------------------------------
 
-    # Counts the lines of every page that the field's text matches and
-    # hands the counts to the tree; the text of the pages is read first
-    # (once, in the background) when it is not yet.
+    # Counts matching lines per page in a fiber once the corpus is read; a
+    # newer search cancels it.
     private def search_hits : Nil
       generation = @hit_generation.add(1) + 1
       query = @dock.field.text
@@ -793,14 +772,14 @@ module Docv
       apply_hits
     end
 
-    # Hands the hit counts (per index entry) to the group's tree.
+    # Maps the hit counts per index entry onto the group's tree.
     private def apply_hits : Nil
       tree = @dock.group || return
       counts = @hit_counts
       tree.hits = counts ? tree.items.map { |item| counts[item.target]? || 0 } : nil
     end
 
-    # The text of every page, read in the background on first use.
+    # Starts reading every page in the background on first use.
     private def corpus : Corpus
       @corpus ||= begin
         corpus = Corpus.new(threads: @search_threads)
@@ -810,8 +789,7 @@ module Docv
       end
     end
 
-    # Builds *corpus*, refreshing the progress in the status row at most
-    # every `INDEX_REFRESH`, then searches the field's text.
+    # Builds *corpus* with throttled progress; `:corpus` then starts the search.
     private def read_pages(corpus : Corpus, sources : Array(Corpus::Source)) : Nil
       last = Time.instant
       corpus.build(sources) do |done, total|
@@ -840,14 +818,15 @@ module Docv
       index.entries.map_with_index { |entry, number| page_item(entry, number) }
     end
 
+    # A page in the trees; Markdown documents go into `DOCUMENT_FOLDER`.
     private def page_item(entry : Index::Entry, number : Int32) : Picker::Item
-      Picker::Item.new(entry.reference, entry.description, number, Theme::Role::Name,
-        entry.project? ? PROJECT_GROUP : OTHER_GROUP, entry.name)
+      document = entry.document?
+      Picker::Item.new(entry.reference, entry.description, number, document ? Theme::Role::Document : Theme::Role::Name,
+        entry.project? ? PROJECT_GROUP : OTHER_GROUP, entry.name, document ? DOCUMENT_FOLDER : "")
     end
 
-    # Describes the index in the background, yielding to the input loop
-    # every `INDEX_BATCH` pages and refreshing the tree at most every
-    # `INDEX_REFRESH`.
+    # Yields to the input loop every `INDEX_BATCH` entries; refreshes at most
+    # every `INDEX_REFRESH`.
     private def describe(index : Index) : Nil
       last = Time.instant
       index.describe do |done, total|
@@ -874,8 +853,7 @@ module Docv
       open_path(entry.path)
     end
 
-    # The index entry of the current page: by path, then by name and
-    # section.
+    # The current page's index entry, by path, then by name and section.
     private def entry_number(index : Index) : Int32?
       path = File.expand_path(@page.path || return nil)
       entries = index.entries
@@ -908,9 +886,7 @@ module Docv
       open_link(link)
     end
 
-    # Follows *link*: a manual page along the manual path, a file relative
-    # to the current one (at its anchor, if any) or an anchor of the current
-    # page. A URL is the terminal's to open (OSC 8); it is shown instead.
+    # The terminal opens URLs (OSC 8), so they are only shown here.
     private def open_link(link : Layout::Link) : Nil
       target = link.target
       case target.kind
@@ -932,9 +908,7 @@ module Docv
       end
     end
 
-    # Opens the page at *path*, at the heading of *anchor* when it has one,
-    # remembering the current position unless the current page is the empty
-    # start page.
+    # Opens *path* at the heading *anchor*, if found.
     private def open_path(path : String, anchor : String = "") : Nil
       document = begin
         Docv.load(path, @options)
@@ -948,14 +922,12 @@ module Docv
       show(page, {block || -1, 0}, 0)
     end
 
-    # Puts the reading position on the history.
     private def remember : Nil
       block, offset = anchor_of(@top)
       @history << Position.new(@page, block, offset, @left, @wrap)
     end
 
-    # The block of the heading with *anchor* in *document*, matched as
-    # written or as a heading anchor of the text.
+    # Matches *anchor* as written, then as a slug.
     private def anchor_block(anchor : String, document : Document = @page.document) : Int32?
       document.anchors[anchor]? || document.anchors[Markdown.slug(anchor)]?
     end
@@ -970,7 +942,7 @@ module Docv
       show(position.page, {position.block, position.offset}, position.left)
     end
 
-    # Shows *page*: finds the field's text in it and selects it in the tree.
+    # Shows *page*, re-finding the field's text and selecting it in the tree.
     private def show(page : Page, anchor : {Int32, Int32}, left : Int32) : Nil
       @page = page
       @layouts.clear
@@ -983,16 +955,15 @@ module Docv
 
     # --- text selection ------------------------------------------------------
 
-    # The page line and column under screen cell (*row*, *col*), kept on the
-    # visible body rows.
+    # Page line and column under screen cell (*row*, *col*), clamped to the
+    # visible rows.
     private def page_point(row : Int32, col : Int32) : {Int32, Int32}?
       return nil if @lines.empty?
       last = Math.min(@top + page_rows, @lines.size) - 1
       {(@top + row - page_top).clamp(@top, last), Math.max(@left + col - @frame.left, 0)}
     end
 
-    # The selection in page order: first line and column, last line and
-    # column (inclusive).
+    # The selection in page order, last column inclusive.
     private def selection_range : {Int32, Int32, Int32, Int32}?
       anchor_line, anchor_col, head_line, head_col = @selection || return nil
       if anchor_line < head_line || (anchor_line == head_line && anchor_col <= head_col)
@@ -1002,9 +973,8 @@ module Docv
       end
     end
 
-    # The selected columns of line *index*: start and past-the-end, within
-    # the line's text (its indentation and trailing blanks are not
-    # selected); `nil` when none.
+    # Selected columns of line *index* (end exclusive), within its text;
+    # `nil` when none.
     private def selected_cols(index : Int32, range : {Int32, Int32, Int32, Int32}) : {Int32, Int32}?
       first_line, first_col, last_line, last_col = range
       return nil unless first_line <= index <= last_line
@@ -1020,10 +990,7 @@ module Docv
       start < finish ? {start, finish} : nil
     end
 
-    # The selected text, lines joined by newlines. Lines lose the
-    # indentation they share, so text is copied flush left while code keeps
-    # its relative indentation; lines between selected ones that have no
-    # text stay as empty lines.
+    # Lines lose the indentation they share, so code keeps its relative indentation.
     private def selected_text : String?
       range = selection_range || return nil
       first_line, _, last_line, _ = range
@@ -1040,14 +1007,13 @@ module Docv
       end
     end
 
-    # True for a cell without a character: padding and spaces between words.
+    # A cell without a character: padding or a space.
     private def blank?(cell : Cell) : Bool
       cell.ch == ' ' && cell.cluster == 0 && !cell.continuation?
     end
 
-    # Selects what a double click (*count* 2: the word or the run of
-    # punctuation) or a triple click (*count* 3: the paragraph) at screen
-    # cell (*row*, *col*) of the page body points at, and copies it.
+    # Selects and copies the word (*count* 2) or paragraph (*count* 3) at a
+    # screen cell.
     private def select_at(row : Int32, col : Int32, count : Int32) : Nil
       return unless 0 <= row - page_top < page_rows
       index, page_col = page_point(row, col) || return
@@ -1055,8 +1021,7 @@ module Docv
       copy_selection
     end
 
-    # The run of cells of one `CharClass` around column *col* of line
-    # *index*, as a selection; `nil` on a blank.
+    # The run of one `CharClass` around *col*; `nil` on a blank.
     private def word_at(index : Int32, col : Int32) : {Int32, Int32, Int32, Int32}?
       cells = @lines[index].cells
       return nil unless col < cells.size
@@ -1073,8 +1038,7 @@ module Docv
       {index, start, index, finish}
     end
 
-    # The class of the character at *col*; a continuation cell takes the
-    # class of the wide character it continues.
+    # A continuation cell takes the class of the wide character it continues.
     private def char_class(cells : Array(Cell), col : Int32) : CharClass
       while col > 0 && cells[col].continuation?
         col -= 1
@@ -1084,8 +1048,8 @@ module Docv
       cell.ch.alphanumeric? || WORD_CHARS.includes?(cell.ch) ? CharClass::Word : CharClass::Punctuation
     end
 
-    # The lines of the paragraph around line *index*: the lines with text
-    # next to it in blocks of the same kind; a heading stands alone.
+    # Adjacent lines with text in blocks of the same kind; a heading stands
+    # alone.
     private def paragraph_at(index : Int32) : {Int32, Int32, Int32, Int32}?
       kind = paragraph_kind(index) || return nil
       first = index
@@ -1101,14 +1065,13 @@ module Docv
       {first, 0, last, Math.max(@lines[last].cells.size - 1, 0)}
     end
 
-    # The kind of the block of line *index*; `nil` for a line without text.
+    # The block kind of line *index*; `nil` for a line without text.
     private def paragraph_kind(index : Int32) : BlockKind?
       line = @lines[index]
       return nil if line.block < 0 || line.cells.all? { |cell| blank?(cell) }
       @page.document.blocks[line.block].kind
     end
 
-    # Puts the selected text on the clipboard.
     private def copy_selection : Nil
       text = selected_text || return
       return if text.strip.empty?
@@ -1215,7 +1178,7 @@ module Docv
         @left = ((event.col - @frame.inner - @drag_grab).to_i64 * max_left // travel).to_i
         clamp
       in .divider?
-        # The page lays out for the new width when the drag ends (`refit`).
+        # Laid out again on release (`refit`).
         @dock.width = event.col + 1
         @frame = Frame.new(@frame.rows, @frame.cols, @dock.offset(@frame.cols))
         clamp
@@ -1256,8 +1219,6 @@ module Docv
       end
     end
 
-    # A click on *part* of the dock at screen *row*: the field takes the
-    # keyboard; a tree row opens its page or folds and unfolds its group.
     private def dock_click(part : Dock::Part, row : Int32) : Nil
       case part
       when .field?
@@ -1301,8 +1262,7 @@ module Docv
 
     # --- drawing -------------------------------------------------------------
 
-    # Resolves the theme for the palette at the color depth: 24-bit once the
-    # terminal reported its colors, otherwise what the environment says.
+    # 24-bit once the terminal reported its colors, unless colors are off.
     private def apply_colors : Nil
       depth = @depth.none? || !@palette.reported? ? @depth : ColorDepth::TrueColor
       @styles = @theme.styles(@palette, depth)
@@ -1310,14 +1270,11 @@ module Docv
       @screen.colors(@palette, depth)
     end
 
-    # The style id of *role*.
     private def role(role : Theme::Role) : UInt16
       @styles[role.value]
     end
 
-    # The themed style of page style *id*: bold, italic and underlined text
-    # in their roles, other text as it is; then marked text with the role of
-    # its markup on top.
+    # Attribute roles for uncolored text, then the markup role on top.
     private def page_style(id : UInt16) : UInt16
       @page_styles[id] ||= begin
         style = Styles[id]
@@ -1348,8 +1305,6 @@ module Docv
       shape_pointer
     end
 
-    # Sets the pointer shape for what lies under the pointer, when it
-    # changed.
     private def shape_pointer : Nil
       hover = hover_kind
       return if hover == @hover
@@ -1357,8 +1312,7 @@ module Docv
       @tty.pointer(POINTER_SHAPES[hover])
     end
 
-    # What lies under the pointer: text to select, a link, page or group to
-    # open, a field to type in, the dock's edge or a scrollbar thumb.
+    # An ongoing drag decides first.
     private def hover_kind : Hover
       case @drag
       when .divider?                            then return Hover::Resize
@@ -1390,7 +1344,6 @@ module Docv
       thumb[0] <= track < thumb[0] + thumb[1]
     end
 
-    # A link, text or nothing at screen cell (*row*, *col*) of the page body.
     private def page_hover(row : Int32, col : Int32) : Hover
       offset = row - page_top
       return Hover::Plain unless 0 <= offset < page_rows
@@ -1401,9 +1354,8 @@ module Docv
       cell && !blank?(cell) ? Hover::Text : Hover::Plain
     end
 
-    # The body. Text takes its role (headings whole), then links, the matches of finding in the page (the selected
-    # one's line on `Selection`), the selection and the focused link go on
-    # top.
+    # Over the text role (whole line for headings): links, the selected
+    # match's line, matches, selection, focused link.
     private def draw_page : Nil
       blocks = @page.document.blocks
       range = selection_range
@@ -1446,10 +1398,7 @@ module Docv
       end
     end
 
-    # The title row: the title, then the page's heading centered in
-    # `PageHeader` (`Help::TITLE` while the help is shown), with the page
-    # footer's source and date after it in `Detail` while the pointer is on
-    # it.
+    # The page's source and date follow the heading while the pointer is on it.
     private def draw_title : Nil
       @frame.title(@screen, role(Theme::Role::Title), role(Theme::Role::Version))
       heading = @help ? Help::TITLE : page_heading
@@ -1465,9 +1414,8 @@ module Docv
       @screen.write(0, stop + 2, Unicode.truncate(detail, limit - stop - 2), role(Theme::Role::Detail))
     end
 
-    # The page's heading: the manual and the reference of a manual page
-    # (`ABRT Manual - ABRT(1)`), the file name and first heading of a
-    # document (`README.md - docv`); empty for the start page.
+    # `ABRT Manual - ABRT(1)` for a manual page, `README.md - docv` for a
+    # document; empty on the start page.
     private def page_heading : String
       document = @page.document
       unless document.title.empty? || document.format.markdown?
@@ -1478,7 +1426,6 @@ module Docv
       heading.empty? ? name : "#{name}#{HEADING_SEPARATOR}#{heading}"
     end
 
-    # The page footer's source and date.
     private def page_detail : String
       document = @page.document
       [document.source, document.date].reject(&.empty?).join("  ")
@@ -1490,8 +1437,8 @@ module Docv
       @screen.restyle(row, start, count) { |id| yield id }
     end
 
-    # The screen column and count of the visible part of page columns
-    # *col*...*col + width*; `nil` when none is visible.
+    # Screen column and width of the visible part of page columns
+    # *col*...*col + width*; `nil` when none.
     private def visible(col : Int32, width : Int32) : {Int32, Int32}?
       start = @frame.left + col - @left
       finish = Math.min(start + width, @frame.left + content_cols)
@@ -1499,11 +1446,7 @@ module Docv
       finish > start ? {start, finish - start} : nil
     end
 
-    # The status row: the message on the left; on the right the result
-    # count of a manual search, or the selected match and the match count
-    # while finding in the page, the progress of indexing and of reading
-    # the pages, then the layout, visible lines and column of the page (the
-    # visible lines of the help while it is shown).
+    # Message on the left; counts, progress and position on the right.
     private def draw_status : Nil
       parts = [] of String
       if @dock.open? && @dock.manual?

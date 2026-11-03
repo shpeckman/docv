@@ -1,17 +1,13 @@
 # src/docv/roff/interpolate.cr
+
+# :nodoc:
 module Docv::Roff
   class Engine
-    # Maximum nesting of string interpolation.
+    # Nesting limit of string interpolation.
     MAX_INTERPOLATION = 32
 
-    # Expands strings (`\*`), registers (`\n`, `\g`), macro arguments (`\$`),
-    # widths (`\w`), `\B`, `\A`, `\R`, `\V` (environment variables, with
-    # `Options#unsafe` only) and comments. In copy mode (macro
-    # bodies, string values, macro arguments) `\\` becomes `\`, `\.` becomes
-    # `.` and `\t`/`\a` become literal characters; other escapes are kept for
-    # the inline formatter.
-    # Conditional braces `\{` `\}` are kept only with *braces* (macro
-    # bodies, where they still have to delimit blocks when the body runs).
+    # Expands `\*` `\n` `\g` `\$` `\w` `\B` `\A` `\R` `\V` (unsafe only) and comments; `Inline` does the rest.
+    # *copy* mode resolves `\\`, `\.`, `\t` and `\a` (as a tab); *braces* keeps `\{` `\}` (macro bodies).
     def interpolate(text : String, copy : Bool, depth : Int32 = 0, braces : Bool = false) : String
       return text unless text.includes?('\\')
       String.build(text.bytesize + 16) { |io| interpolate_into(io, text, copy, depth, braces) }
@@ -94,8 +90,7 @@ module Docv::Roff
       end
     end
 
-    # Sets register *name* from an expression; a leading sign adds to the
-    # current value.
+    # A leading sign in *expr* is relative to the current value.
     def set_register_expression(name : String, expr : String, increment : String? = nil) : Nil
       return if expr.empty?
       relative = expr[0] == '+' || expr[0] == '-'

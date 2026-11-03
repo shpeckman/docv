@@ -1,14 +1,24 @@
 # src/docv/macros/mdoc.cr
+
 require "./mdoc_data"
 
+# :nodoc:
 module Docv::Macros
-  # The mdoc(7) semantic macro package, implemented natively on the roff
-  # engine.
+  # The mdoc(7) semantic macro package.
   class Mdoc < Roff::Package
     include MdocData
 
-    # An argument of a macro line; quoted arguments are never macro names
-    # or delimiters.
+    # Body indent: `Options#indent`, else `INDENT`; subsection headings scale with it.
+    @indent : Int32
+    @sub_indent : Int32
+
+    def initialize(engine : Roff::Engine)
+      super
+      @indent = engine.options.indent || INDENT
+      @sub_indent = (@indent * SUB_INDENT + INDENT // 2) // INDENT
+    end
+
+    # A macro line argument; quoted ones are never macro names or delimiters.
     record Token, text : String, quoted : Bool
 
     # An open `.Bl` list.
@@ -185,8 +195,7 @@ module Docv::Macros
       !token.quoted && CALLABLE.includes?(token.text)
     end
 
-    # Sets *text* in *font* with mdoc spacing: closing delimiters attach to
-    # the previous word, opening delimiters to the next.
+    # Sets *text* with mdoc spacing: closing delimiters attach left, opening ones right.
     private def put(text : String, font : Roff::Font, kind : Symbol) : Nil
       builder = @engine.builder
       builder.no_word_space if kind == :close || @no_space || (!@spacing && !@line_start)
@@ -208,8 +217,7 @@ module Docv::Macros
       @engine.text_line_done
     end
 
-    # Parses the tokens of a macro line from *index*: callable macros run,
-    # other tokens are words.
+    # Runs callable macros in *tokens* from *index*; other tokens are words.
     private def parse_range(tokens : Array(Token), index : Int32, stop : Int32) : Nil
       while index < stop
         token = tokens[index]
@@ -246,8 +254,7 @@ module Docv::Macros
 
     # --- inline macros -------------------------------------------------------
 
-    # Runs callable macro *name* on *tokens* from *index*; returns the index
-    # after its arguments.
+    # Runs callable macro *name*; returns the index after its arguments.
     private def inline(name : String, tokens : Array(Token), index : Int32, stop : Int32) : Int32
       if pair = ENCLOSE[name]?
         return enclose(name, pair, tokens, index, stop)
@@ -578,12 +585,12 @@ module Docv::Macros
         @synopsis_names += 1
         given = tokens.first?.try { |token| delimiter(token) == :word && !callable?(token) ? token.text : nil }
         hang = Unicode.text_width(plain(given || @name || "")) + 1
-        @engine.env.indent = INDENT + hang
+        @engine.env.indent = @indent + hang
         builder.hang(-hang)
       when "Ft", "Ot"
         builder.blank(1) if @synopsis_function
         builder.break_line
-        @engine.env.indent = INDENT
+        @engine.env.indent = @indent
       when "Fd", "In", "Cd", "Vt"
         builder.break_line
       when "Fn", "Fo"
@@ -603,7 +610,7 @@ module Docv::Macros
       when "Fn", "Fc"
         builder.break_line
         @synopsis_function = true
-        @engine.env.indent = INDENT
+        @engine.env.indent = @indent
       when "Fd", "In", "Cd"
         builder.break_line
       end
@@ -635,9 +642,9 @@ module Docv::Macros
       @base_font = Roff::Font::Regular
       text = spans.join(&.text)
       @section = text if level == 1
-      builder.heading(level, spans, level == 1 ? 0 : SUB_INDENT)
+      builder.heading(level, spans, level == 1 ? 0 : @sub_indent)
       builder.no_space = true
-      env.indent = INDENT
+      env.indent = @indent
       env.fill = true
       @synopsis_function = false
       @synopsis_names = 0
@@ -841,8 +848,7 @@ module Docv::Macros
       env.center = display.center
     end
 
-    # `.D1` and `.Dl`: one indented line; a literal one (`.Dl`) is never
-    # filled.
+    # `.D1` and `.Dl` (*literal*, never filled): one indented line.
     private def one_line_display(tokens : Array(Token), literal : Bool) : Nil
       builder = @engine.builder
       env = @engine.env

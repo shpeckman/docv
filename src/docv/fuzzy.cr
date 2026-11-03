@@ -1,22 +1,8 @@
 # src/docv/fuzzy.cr
+
 module Docv
-  # Fuzzy matching of a query against text, scored like fzf. The query's
-  # characters must appear in the text in order; a match scores higher at
-  # word starts, in runs of consecutive characters and with short gaps. The
-  # best alignment is found by dynamic programming over the window between
-  # the first possible start and the last possible end.
-  #
-  # A query in lower case matches case-insensitively; a query with an
-  # upper-case letter matches exactly.
-  #
-  # ```
-  # fuzzy = Docv::Fuzzy.new("prf")
-  # fuzzy.score("printf")     # => 73
-  # fuzzy.positions("printf") # => [0, 1, 5]
-  # fuzzy.score("open")       # => nil
-  # ```
-  #
-  # A matcher reuses its buffers between calls; use one per fiber.
+  # :nodoc:
+  # fzf-style subsequence scoring; reuses its buffers, so one per fiber.
   class Fuzzy
     SCORE_MATCH           = 16
     GAP_START             = -3
@@ -35,7 +21,7 @@ module Docv
     # Score of an impossible alignment.
     NONE = Int32::MIN // 2
 
-    # Character classes that decide bonuses.
+    # :nodoc:
     enum Kind : UInt8
       White
       NonWord
@@ -51,11 +37,9 @@ module Docv
       end
     end
 
-    # Class of every ASCII character.
     ASCII = StaticArray(Kind, 128).new { |code| Fuzzy.kind(code.unsafe_chr) }
 
-    # `BONUS[previous][current]`: the bonus of a character of class
-    # *current* following one of class *previous*.
+    # `BONUS[previous][current]` by character class.
     BONUS = Kind.values.map { |previous| Kind.values.map { |current| Fuzzy.bonus(previous, current) } }
 
     getter query : String
@@ -75,7 +59,6 @@ module Docv
       @codes = query.chars.map(&.ord)
     end
 
-    # The class of *char*.
     def self.kind(char : Char) : Kind
       if char.lowercase?
         Kind::Lower
@@ -94,9 +77,6 @@ module Docv
       end
     end
 
-    # The bonus of a *current* character after a *previous* one: word
-    # starts, camel humps and digits after non-digits, and non-word
-    # characters themselves.
     def self.bonus(previous : Kind, current : Kind) : Int32
       if current.word?
         return BONUS_WHITE if previous.white?
@@ -109,21 +89,18 @@ module Docv
       0
     end
 
-    # True for an empty query, which matches everything with score 0.
+    # An empty query matches everything with score 0.
     def empty? : Bool
       @codes.empty?
     end
 
-    # The score of the best alignment of the query in *text*; `nil` when the
-    # query is not a subsequence of it.
+    # Score of the best alignment in *text*; `nil` when the query is not a subsequence of it.
     def score(text : String) : Int32?
       return 0 if @codes.empty?
       text.ascii_only? ? run(text.to_slice, nil) : run(text.chars, nil)
     end
 
-    # True when the query is a subsequence of the UTF-8 *text*, under the
-    # same case rule as `score`: what `score` finds a match in, without
-    # aligning. Used to count matching lines in bulk (`Corpus`).
+    # Whether `score` would match the UTF-8 *text*, without aligning.
     def match?(text : Bytes) : Bool
       count = @codes.size
       return true if count == 0
@@ -148,15 +125,13 @@ module Docv
       false
     end
 
-    # The folded code of every ASCII byte, for an ASCII query; `nil` for
-    # other queries.
+    # Folded code per ASCII byte; `nil` unless the query is ASCII.
     private def ascii_folds : Array(Int32)?
       return nil unless @codes.all? { |code| code < 128 }
       @ascii_folds ||= Array(Int32).new(128) { |code| fold(code) }
     end
 
-    # The character indices of the best alignment in *text*; `nil` when
-    # there is no match.
+    # Character indices of the best alignment in *text*; `nil` without a match.
     def positions(text : String) : Array(Int32)?
       return [] of Int32 if @codes.empty?
       positions = [] of Int32
@@ -212,8 +187,7 @@ module Docv
       end
     end
 
-    # Fills the score matrix row by row (one row per query character) and
-    # returns the best score in the last row with its column.
+    # Fills the score matrix, a row per query character; returns the best last-row score and column.
     private def align(count : Int32, width : Int32) : {Int32, Int32}
       scores = @scores.to_unsafe
       chunks = @chunks.to_unsafe

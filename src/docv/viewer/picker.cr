@@ -1,51 +1,46 @@
 # src/docv/viewer/picker.cr
+
 module Docv
   class Viewer
-    # A fuzzy-filtered, ranked list with a selection: the page search, and
-    # the ranking behind finding in the page.
-    #
-    # The query splits into space-separated terms, each a `Fuzzy` matcher.
-    # Every term must match an item's label, or its detail when details are
-    # searched. A term counts with the better of its label score plus
-    # `LABEL_BONUS` and its detail score. Items of a lower group come first
-    # (the project's pages and documents in the page search); within a
-    # group the best score wins, and ties go to the shorter label, then to
-    # the item order. An empty query lists every item in order.
-    #
-    # A *nested* picker shows its items as an `Outline`: groups of items
-    # sharing a name prefix, folded until opened. An empty query lists the
-    # outline in its order; a query ranks each level by the best match
-    # under it, leaves out groups without matches and opens the others
-    # until they are folded by hand.
-    #
-    # Rows scroll sideways (`scroll_x`) when they are wider than the view,
-    # and items can carry hit counts (`hits=`), drawn at the right edge of
-    # their rows in `Hit`.
+    # :nodoc:
+    # Fuzzy-ranked list with a selection, shown as an `Outline` when nested.
     class Picker
       # What a label match is worth above an equal detail match.
       LABEL_BONUS = Fuzzy::SCORE_MATCH // 2
-      # Widest label column in percent of the width; details follow in a
-      # column, or two columns after a longer label.
+      # Widest label column, in percent of the width.
       LABEL_PERCENT = 40
-      # Marks of a folded and an open group, and the columns they take.
-      FOLDED       = '▸'
-      OPEN         = '▾'
+      # Group marks and the columns they take.
+      FOLDED       = '●'
+      OPEN         = '○'
       MARKER_WIDTH = 2
-      # The role of group labels and the word after a group's item count.
-      GROUP_ROLE   = Theme::Role::Name
+      # Tree lines before a nested row, per enclosing level: `STEM` while that
+      # level continues below, else `GUIDE` while an outer one does (in
+      # `GUIDE_ROLE`); then the branch to a row with a later sibling, or the
+      # last branch. Stems and branches are in `LINE_ROLE`.
+      STEM        = "│"
+      GUIDE       = "╎"
+      BRANCH      = "├╴"
+      LAST_BRANCH = "╰╴"
+      GUIDE_ROLE  = Theme::Role::TreeGuide
+      LINE_ROLE   = Theme::Role::Border
+      # Roles of group labels and of their marks; word after a group's item
+      # count.
+      GROUP_ROLE   = Theme::Role::Button
+      MARK_ROLE    = Theme::Role::ButtonDim
       GROUP_DETAIL = "pages"
+      # The section of a page reference (`(1)` in `ls(1)`), drawn in `SUFFIX_ROLE`.
+      SUFFIX      = /\([^()]*\)\z/
+      SUFFIX_ROLE = Theme::Role::Detail
 
-      # A candidate: the *label* shown and matched first, a secondary
-      # *detail*, the caller's *target*, the *role* the label is drawn in,
-      # the *group* it ranks in, and the *key* a nested picker groups it by.
+      # *target* is the caller's id; lower *group*s rank first; *key* places
+      # the item in an outline, inside a group named *folder* unless empty.
       record Item, label : String, detail : String = "", target : Int32 = 0, role : Theme::Role = Theme::Role::Text,
-        group : Int32 = 0, key : String = ""
+        group : Int32 = 0, key : String = "", folder : String = ""
 
       getter items : Array(Item)
       # Indices into `items` of the matching items, best first.
       getter results = [] of Int32
-      # The rows shown: node ids of the `outline` when nested, otherwise
-      # `results`.
+      # Outline node ids when nested, otherwise `results`.
       getter rows = [] of Int32
       # Index into `rows` of the selected row.
       getter selected = 0
@@ -57,7 +52,6 @@ module Docv
       getter label_width = 0
       # Columns the rows are scrolled sideways.
       getter left = 0
-      # Hit counts per item (`hits=`), if any.
       getter hits : Array(Int32)? = nil
 
       @terms = [] of Fuzzy
@@ -70,23 +64,26 @@ module Docv
       @detail_width = 0
       # Per row id: an item's hit count, a group's number of items with hits.
       @row_hits : Array(Int32) = [] of Int32
+      # Per row: bit *n* is set when a later row at depth *n* follows before a
+      # shallower one (the levels that continue below it).
+      @stems = [] of Int32
 
-      def initialize(@items : Array(Item), @search_details : Bool = true, nested : Bool = false)
-        @outline = Outline.new(@items) if nested
+      def initialize(@items : Array(Item), @search_details : Bool = true, nested : Bool = false,
+                     @min_group : Int32 = Outline::MIN_GROUP)
+        @outline = Outline.new(@items, @min_group) if nested
         measure
         refilter
       end
 
-      # Replaces the items, keeping the query, the open groups while the
-      # keys stay the same, and the selected row when the selection was
-      # moved.
+      # Keeps the query, a moved selection, and open groups while the keys
+      # stay the same.
       def items=(items : Array(Item)) : Array(Item)
         node = @selected > 0 ? @rows[@selected]? : nil
         target = node.try { |id| item_of(id) }.try { |index| @items[index].target }
         same = same_keys?(items)
         @items = items
         unless same || @outline.nil?
-          @outline = Outline.new(items)
+          @outline = Outline.new(items, @min_group)
           @opened.clear
           @folded.clear
           node = nil
@@ -144,8 +141,7 @@ module Docv
         open?(id) ? move(1, rows) : toggle(rows)
       end
 
-      # Folds the selected group, or moves to the group around the selected
-      # row when it is folded or an item.
+      # Folds the selected group, or moves to its parent group.
       def collapse(rows : Int32) : Nil
         id = @rows[@selected]? || return
         return toggle(rows) if item_of(id).nil? && open?(id)
@@ -154,8 +150,8 @@ module Docv
         move(index - @selected, rows)
       end
 
-      # Selects the item with *target*, unfolding the groups around it, and
-      # scrolls it into a view of *rows*; false when no item has it.
+      # Selects the item with *target*, unfolding its groups, in a view of
+      # *rows*; false when no item has it.
       def reveal(target : Int32, rows : Int32) : Bool
         index = @items.index { |item| item.target == target } || return false
         if (outline = @outline) && @terms.empty?
@@ -173,9 +169,8 @@ module Docv
         true
       end
 
-      # Opens folded groups level by level, in outline order, while the rows
-      # still fit in *rows*; a group whose items would not fit stays folded.
-      # Only without a query.
+      # Opens groups level by level while the rows fit in *rows*; only
+      # without a query.
       def unfold(rows : Int32) : Nil
         outline = @outline || return
         return unless @terms.empty?
@@ -214,20 +209,18 @@ module Docv
         @selected = @selected.clamp(@top, Math.min(@top + rows, @rows.size) - 1)
       end
 
-      # Columns of the widest row: its label, and with *details* its detail
-      # after the label column.
+      # Columns of the widest row, with or without *details*.
       def width(details : Bool) : Int32
         details ? @label_width + 2 + @detail_width : @label_width
       end
 
-      # Scrolls sideways by *delta* columns in a view of *cols* columns
-      # (`draw`'s), with or without *details*.
+      # Scrolls sideways by *delta* columns in a view *cols* wide.
       def scroll_x(delta : Int32, cols : Int32, details : Bool) : Nil
         @left = (@left + delta).clamp(0, Math.max(width(details) - (cols - 2), 0))
       end
 
-      # Sets the hit counts per item (`Corpus#count`); an outline's groups
-      # count their items with hits. `nil` removes them.
+      # Sets hit counts per item; groups count their items with hits. `nil`
+      # removes them.
       def hits=(counts : Array(Int32)?) : Array(Int32)?
         @hits = counts
         @row_hits = if counts
@@ -238,7 +231,6 @@ module Docv
         counts
       end
 
-      # The largest `top` for a view of *rows*.
       def max_top(rows : Int32) : Int32
         Math.max(@rows.size - rows, 0)
       end
@@ -251,8 +243,7 @@ module Docv
         true
       end
 
-      # Matched character positions in the label and the detail of item
-      # *index*.
+      # Matched character positions in the label and detail of item *index*.
       def marks(index : Int32) : {Array(Int32), Array(Int32)}
         @marks[index] ||= begin
           item = @items[index]
@@ -270,14 +261,7 @@ module Docv
         end
       end
 
-      # Draws *rows* rows into *cols* columns of *screen* from (*row*,
-      # *col*) with the role style ids *styles* (`Theme#styles`), scrolled
-      # sideways by `left`: labels in their item's role (groups in
-      # `GROUP_ROLE`, after their mark), with *details* their details in
-      # `Detail`, the selected row on `Selection`, the visible row *hover*
-      # under the pointer on `Hover` and matched characters in `Mark`, all
-      # over *fill*. Rows with hits take `Hit` on their labels and show the
-      # count at the right edge.
+      # *hover* is the visible row under the pointer; rows are drawn over *fill*.
       def draw(screen : Screen, row : Int32, col : Int32, rows : Int32, cols : Int32, styles : Array(UInt16),
                hover : Int32? = nil, fill : UInt16 = 0_u16, details : Bool = true) : Nil
         detail = styles[Theme::Role::Detail.value]
@@ -301,11 +285,14 @@ module Docv
           screen.write(y, right - badge.size, badge, Styles.merge(hit, row_style)) unless badge.empty?
           x = 0
           if node = @outline.try(&.nodes[id])
-            x = node.depth * Outline::INDENT
+            line = Styles.merge(styles[LINE_ROLE.value], row_style)
+            guide = Styles.merge(styles[GUIDE_ROLE.value], row_style)
+            x = branches(screen, y, left, limit, left - @left, node.depth, @stems[index]? || 0, line, guide)
             if node.group?
               label = Styles.merge(Styles.merge(styles[GROUP_ROLE.value], row_style), count > 0 ? hit : 0_u16)
+              marker = Styles.merge(styles[MARK_ROLE.value], row_style)
               origin = left - @left
-              write(screen, y, left, limit, origin + x, (open?(id) ? OPEN : FOLDED).to_s, [] of Int32, label, mark)
+              write(screen, y, left, limit, origin + x, (open?(id) ? OPEN : FOLDED).to_s, [] of Int32, marker, mark)
               x += MARKER_WIDTH
               write(screen, y, left, limit, origin + x, node.text, shift(prefix_marks(node.prefix), node.skip),
                 label, mark)
@@ -315,7 +302,7 @@ module Docv
               end
               next
             end
-            x += MARKER_WIDTH
+            x += MARKER_WIDTH if node.depth == 0
             id = node.item
           end
           item = @items[id]
@@ -323,7 +310,14 @@ module Docv
           label_marks, detail_marks = marks(id)
           text = node ? node.text : item.label
           label_marks = shift(label_marks, node.skip) if node
-          write(screen, y, left, limit, left - @left + x, text, label_marks, label, mark)
+          name = text.match(SUFFIX).try { |md| text[0, md.begin(0)] } || text
+          start = left - @left + x
+          write(screen, y, left, limit, start, name, label_marks, label, mark)
+          if name.size < text.size
+            suffix = Styles.merge(styles[SUFFIX_ROLE.value], row_style)
+            write(screen, y, left, limit, start + Unicode.text_width(name), text[name.size..],
+              shift(label_marks, name.size), suffix, mark)
+          end
           if details
             after = Math.max(column, x + Unicode.text_width(text)) + 2
             write(screen, y, left, limit, left - @left + after, item.detail, detail_marks, plain, mark)
@@ -331,10 +325,27 @@ module Docv
         end
       end
 
-      # Writes *text* in style *plain* from screen column *col* (left of
-      # *origin* when scrolled), showing the part between *origin* and
-      # *limit* (exclusive), with the characters at *marks* in *plain*
-      # merged with *mark*, ending in `…` when it does not fit.
+      # Draws the tree lines of a row at *depth* from screen column *start*
+      # (*stems* as in `@stems`): stems and the branch in *style*, guides in
+      # *guide*; returns the columns they take.
+      private def branches(screen : Screen, row : Int32, origin : Int32, limit : Int32, start : Int32, depth : Int32,
+                           stems : Int32, style : UInt16, guide : UInt16) : Int32
+        return 0 if depth == 0
+        (1...depth).each do |level|
+          col = start + (level - 1) * Outline::INDENT
+          if stems.bit(level) == 1
+            write(screen, row, origin, limit, col, STEM, [] of Int32, style, 0_u16)
+          elsif stems & ((1 << level) - 2) != 0
+            write(screen, row, origin, limit, col, GUIDE, [] of Int32, guide, 0_u16)
+          end
+        end
+        branch = stems.bit(depth) == 1 ? BRANCH : LAST_BRANCH
+        write(screen, row, origin, limit, start + (depth - 1) * Outline::INDENT, branch, [] of Int32, style, 0_u16)
+        depth * Outline::INDENT
+      end
+
+      # Writes the part of *text* from *col* within *origin*...*limit*, *marks*
+      # merged with *mark*, ending in `…` when cut.
       private def write(screen : Screen, row : Int32, origin : Int32, limit : Int32, col : Int32, text : String,
                         marks : Array(Int32), plain : UInt16, mark : UInt16) : Nil
         return if col >= limit || text.empty?
@@ -360,9 +371,8 @@ module Docv
         screen[row, col] = Cell.new('…', plain) unless fits || col < origin
       end
 
-      # Per outline node: an item's count in *counts*, a group's number of
-      # items with hits (children come after their group, so a reverse walk
-      # sums them up).
+      # Per node: an item's count, a group's number of items with hits.
+      # Children follow their group, so a reverse walk sums them up.
       private def outline_hits(outline : Outline, counts : Array(Int32)) : Array(Int32)
         nodes = outline.nodes
         shown = Array(Int32).new(nodes.size, 0)
@@ -407,7 +417,7 @@ module Docv
         return false unless items.size == @items.size
         items.each_with_index do |item, index|
           old = @items[index]
-          return false unless item.key == old.key && item.group == old.group
+          return false unless item.key == old.key && item.group == old.group && item.folder == old.folder
         end
         true
       end
@@ -415,7 +425,8 @@ module Docv
       private def measure : Nil
         @label_width = if outline = @outline
                          outline.nodes.max_of? do |node|
-                           node.depth * Outline::INDENT + MARKER_WIDTH + Unicode.text_width(node.text)
+                           mark = node.group? || node.depth == 0 ? MARKER_WIDTH : 0
+                           node.depth * Outline::INDENT + mark + Unicode.text_width(node.text)
                          end || 0
                        else
                          @items.max_of? { |item| Unicode.text_width(item.label) } || 0
@@ -441,8 +452,7 @@ module Docv
         @selected = @selected.clamp(0, Math.max(@rows.size - 1, 0))
       end
 
-      # The best result position under each outline node; groups follow
-      # their children in node order.
+      # Best result position under each outline node.
       private def rank : Nil
         outline = @outline || return
         return @rank.clear if @terms.empty?
@@ -464,6 +474,19 @@ module Docv
           outline.roots.each { |id| list_outline(outline, id) }
         else
           list_ranked(outline, outline.roots)
+        end
+        stem_rows(outline)
+      end
+
+      # Fills `@stems`, walking the rows backward: a row ends the levels
+      # deeper than its own and continues its own.
+      private def stem_rows(outline : Outline) : Nil
+        @stems = Array(Int32).new(@rows.size, 0)
+        later = 0
+        (@rows.size - 1).downto(0) do |index|
+          depth = outline.nodes[@rows[index]].depth
+          @stems[index] = later & ((1 << (depth + 1)) - 1)
+          later = (later & ((1 << depth) - 1)) | (1 << depth)
         end
       end
 
@@ -492,7 +515,6 @@ module Docv
         total
       end
 
-      # The part of an item a term counts on.
       private enum Side
         Label
         Detail

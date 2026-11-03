@@ -1,10 +1,8 @@
 # src/docv/screen.cr
+
 module Docv
-  # A cell grid with a front buffer (what the terminal shows) and a back
-  # buffer (the next frame). `render` compares the buffers row by row and
-  # rewrites only the rows that changed. Colors are written at `depth`:
-  # colors the terminal cannot show are reduced through `palette`. Cells can
-  # carry a hyperlink (`link`), written as OSC 8.
+  # :nodoc:
+  # Double-buffered cell grid; `render` rewrites only the rows that changed.
   class Screen
     getter rows : Int32 = 0
     getter cols : Int32 = 0
@@ -42,8 +40,7 @@ module Docv
       @front_valid = false
     end
 
-    # Sets the terminal's colors and color depth; the next render redraws
-    # every row.
+    # Colors beyond *depth* are reduced through *palette*; forces a full redraw.
     def colors(@palette : Palette, @depth : ColorDepth) : Nil
       @sgr.clear
       invalidate
@@ -55,8 +52,7 @@ module Docv
       @back_links.clear(@rows * @cols)
     end
 
-    # Makes *count* cells from (*row*, *col*) a hyperlink to *uri*. A URI
-    # with characters outside printable ASCII is ignored.
+    # Links *count* cells to *uri* (OSC 8); a URI that is not printable ASCII is ignored.
     def link(row : Int32, col : Int32, count : Int32, uri : String) : Nil
       return unless uri.each_byte.all? { |byte| 0x20 < byte < 0x7F }
       id = @uri_ids[uri] ||= begin
@@ -68,19 +64,18 @@ module Docv
       end
     end
 
-    # Sets one cell of the back buffer (ignored outside the grid).
+    # Sets a back-buffer cell; ignored outside the grid.
     def []=(row : Int32, col : Int32, cell : Cell) : Cell
       @back[row * @cols + col] = cell if inside?(row, col)
       cell
     end
 
-    # A cell of the back buffer.
+    # A back-buffer cell, unchecked.
     def [](row : Int32, col : Int32) : Cell
       @back[row * @cols + col]
     end
 
-    # Copies *count* cells of *source* starting at *from* to (*row*, *col*);
-    # positions past the end of *source* become blanks.
+    # Copies *count* cells of *source* from index *from*; cells past its end are blank.
     def blit(row : Int32, col : Int32, source : Array(Cell), from : Int32, count : Int32) : Nil
       return unless 0 <= row < @rows
       count = Math.min(count, @cols - col)
@@ -108,12 +103,10 @@ module Docv
       col
     end
 
-    # Fills *count* cells from (*row*, *col*) with *cell*.
     def fill(row : Int32, col : Int32, count : Int32, cell : Cell) : Nil
       count.times { |offset| self[row, col + offset] = cell }
     end
 
-    # Replaces the style of *count* cells from (*row*, *col*).
     def restyle(row : Int32, col : Int32, count : Int32, & : UInt16 -> UInt16) : Nil
       count.times do |offset|
         next unless inside?(row, col + offset)
@@ -123,8 +116,7 @@ module Docv
       end
     end
 
-    # Writes the changed rows to *io* inside a synchronized update; returns
-    # true when anything was written.
+    # Writes changed rows to *io* in a synchronized update; false when nothing changed.
     def render(io : IO) : Bool
       @out.clear
       size = @cols * sizeof(Cell)
@@ -177,7 +169,7 @@ module Docv
       @out << Term::Sequences::RESET
     end
 
-    # The SGR sequence of style *id* at the current depth.
+    # Cached SGR of style *id*, colors reduced to the depth.
     private def sgr(id : UInt16) : String
       @sgr[id] ||= begin
         style = Styles[id]

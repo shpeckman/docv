@@ -30,9 +30,9 @@ are comments; a comment cannot follow a value on the same line.
 An unknown section or key, or an invalid value, is an error:
 .B docv
 reports it and exits with status 1.
-.SH "THE [roff] SECTION"
+.SH "THE [man] SECTION"
 .TP
-.B unsafe
+.B roff\-unsafe
 Run the roff requests that execute commands or access files, and the
 .B \eV
 escape (environment variables).
@@ -82,6 +82,11 @@ these requests are accepted and ignored.
 Manual pages are input from third parties: enable this only if you trust
 every page you open.
 .RE
+.TP
+.B indent
+The body indent of manual pages in the viewer, in columns (0 to 40).
+Unset (the default), man(7) pages are indented 7 columns and mdoc(7) pages
+5, as groff indents them.
 .SH "THE [viewer] SECTION"
 .TP
 .B start\-wrapped
@@ -112,6 +117,8 @@ See
 in
 .MR docv 1
 for where grammars and queries are looked for.
+.SH "THE [picker] SECTION"
+The dock left of the page: its search field and tree of pages.
 .TP
 .B dock
 Where the dock (search field and tree of pages, opened with
@@ -134,6 +141,14 @@ Default
 Open the dock at start.
 Default
 .BR false .
+.TP
+.B min\-group
+The fewest pages whose names share a prefix
+.RB ( abrt\-cli ,
+.BR abrt\-dump ", ...)"
+that make a group in the tree, 2 to 1000.
+Default
+.BR 3 .
 .TP
 .B search\-threads
 How many processes read the text of all pages, and how many threads search
@@ -329,7 +344,8 @@ The close mark.
 .TP
 .B border
 .RB ( foreground\-60 )
-The line under the title row, the horizontal scrollbar track and box edges.
+The line under the title row, the horizontal scrollbar track, the dock's
+divider and the branches and lines of the dock's tree.
 .TP
 .B thumb
 .RB ( "bold blue" )
@@ -372,11 +388,35 @@ The separators between status parts.
 .TP
 .B name
 .RB ( "bold cyan" )
-Page and document names in the tree, and keys in the help.
+Page names in the tree, and keys in the help.
+.TP
+.B document
+.RB ( "bold magenta" )
+Markdown document names in the tree.
 .TP
 .B detail
 .RB ( foreground\-35 )
-Page and document descriptions in the tree.
+Page and document descriptions and the sections of page names in the tree.
+.TP
+.B button
+.RB ( "bold blue" )
+Group names in the tree.
+.TP
+.B button\-dim
+.RB ( blue\-40 )
+The
+.B \[u25CB]
+(open) and
+.B \[u25CF]
+(folded)
+marks of groups in the tree.
+.TP
+.B tree\-guide
+.RB ( background+15 )
+The
+.B \[u254E]
+guides in the dock's tree, under a level that ended while an outer one
+continues.
 .TP
 .B selection
 .RB ( "on background+22" )
@@ -400,14 +440,18 @@ matches, and their counts.
 The overlay dock.
 .SH EXAMPLES
 .EX
-[roff]
-unsafe = false
+[man]
+roff\-unsafe = false
+indent = 4
 
 [viewer]
 start\-wrapped = false
 syntax\-highlighting = false
+
+[picker]
 dock = overlay
 dock\-width = 40
+min\-group = 2
 
 [colors]
 heading1 = bold #ff8800

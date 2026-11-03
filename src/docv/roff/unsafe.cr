@@ -1,15 +1,14 @@
 # src/docv/roff/unsafe.cr
+
+# :nodoc:
 module Docv::Roff
   class Engine
-    # Requests that run commands or access files. They run only with
-    # `Options#unsafe`; otherwise they are accepted and ignored. `\V` is
-    # gated the same way (see `interpolate`).
+    # Requests that run commands or touch files; ignored without `Options#unsafe` (as is `\V`).
     UNSAFE = Set{"sy", "pso", "pi", "open", "opena", "write", "writec", "writem", "close", "cf", "trf", "rd"}
 
     @streams = Hash(String, File).new
     @pipes = [] of String
 
-    # Runs an `UNSAFE` request.
     private def unsafe_request(name : String, raw : String) : Nil
       case name
       when "sy"            then system(interpolate(raw, true))
@@ -25,9 +24,7 @@ module Docv::Roff
       end
     end
 
-    # Runs *command* with `/bin/sh -c`; *input* feeds its standard input,
-    # *output* receives its standard output (both default to the null
-    # device, so commands never touch the viewer's terminal).
+    # `/bin/sh -c`; stdio defaults to the null device so commands never touch the terminal.
     private def shell(command : String, input : IO? = nil, output : IO? = nil) : Process::Status?
       null_in = File.open(File::NULL)
       null_out = File.open(File::NULL, "w")
@@ -42,14 +39,14 @@ module Docv::Roff
       nil
     end
 
-    # `.sy`: runs a command; the raw wait status goes to register `systat`.
+    # `.sy`; the raw wait status goes to register `systat`.
     private def system(command : String) : Nil
       return if command.strip.empty?
       status = shell(command)
       @registers.set("systat", status ? status.system_exit_status.to_i64 : -1_i64)
     end
 
-    # `.pso`: runs a command and reads its output as input.
+    # `.pso`: reads the command's output as input.
     private def pipe_source(command : String) : Nil
       return if command.strip.empty?
       output = IO::Memory.new
@@ -57,7 +54,7 @@ module Docv::Roff
       run_frame(Frame.new(Frame::Kind::File, split_lines(Source.decode(output.to_slice)), "pso"))
     end
 
-    # `.pi`: the formatted page is piped to the command after parsing.
+    # `.pi`: the formatted page goes to the command after parsing.
     private def pipe_output(command : String) : Nil
       command = command.strip
       @pipes << command unless command.empty?
@@ -71,7 +68,7 @@ module Docv::Roff
       @pipes.each { |command| shell(command, input: IO::Memory.new(text)) }
     end
 
-    # `.open stream file` / `.opena stream file`.
+    # `.open`/`.opena stream file`.
     private def open_stream(raw : String, append : Bool) : Nil
       list = args(raw)
       return if list.size < 2
@@ -82,8 +79,7 @@ module Docv::Roff
       @doc.messages << "cannot open #{list.try(&.[1]?)}: #{ex.message}"
     end
 
-    # `.write stream text` / `.writec stream text`: text in copy mode, a
-    # leading quote removed.
+    # `.write`/`.writec stream text`: copy mode, a leading quote removed.
     private def write_stream(raw : String, newline : Bool) : Nil
       stream, text = split_name(raw)
       file = @streams[stream]? || return
@@ -93,7 +89,7 @@ module Docv::Roff
       file.flush
     end
 
-    # `.writem stream macro`: writes the macro body without interpretation.
+    # `.writem stream macro`: writes the body uninterpreted.
     private def write_macro(raw : String) : Nil
       list = args(raw)
       file = list[0]?.try { |stream| @streams[stream]? } || return
@@ -102,8 +98,7 @@ module Docv::Roff
       file.flush
     end
 
-    # `.cf file` / `.trf file`: the file's lines set unprocessed as unfilled
-    # text; control characters other than tab are dropped.
+    # `.cf`/`.trf file`: raw lines as unfilled text, control characters except tab dropped.
     private def copy_file(name : String?) : Nil
       return unless name
       path = File.file?(name) ? name : @source.resolve(name)
@@ -129,8 +124,7 @@ module Docv::Roff
       @doc.messages << "cannot read #{name}: #{ex.message}"
     end
 
-    # `.rd [prompt]`: prints the prompt (or a bell) on standard error and
-    # reads input lines from `Options#stdin` up to an empty line.
+    # `.rd [prompt]`: prompts (or rings) on stderr, reads `Options#stdin` up to an empty line.
     private def read_input(raw : String) : Nil
       input = @options.stdin || return
       prompt = args(raw).first?

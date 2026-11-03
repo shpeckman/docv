@@ -1,4 +1,5 @@
 # src/docv.cr
+
 require "./docv/style"
 require "./docv/cell"
 require "./docv/ast"
@@ -27,9 +28,8 @@ require "./docv/layout"
 require "./docv/fuzzy"
 require "./docv/index"
 
-# Parses manual pages written in roff with the man(7) or mdoc(7) macro
-# packages and tbl(1) tables, and Markdown documents (`Markdown`), and lays
-# them out for a terminal.
+# Parses manual pages (roff with man(7), mdoc(7) and tbl(1)) and Markdown
+# documents, and lays them out for a terminal.
 #
 # ```
 # doc = Docv.open("ls", "1") || abort "no page"
@@ -38,23 +38,22 @@ require "./docv/index"
 # lines.each { |line| puts line.text }
 # ```
 module Docv
+  # The shard's version.
   VERSION = {{ `shards version "#{__DIR__}/.."`.chomp.stringify }}
 
-  # Parses roff source *text*. *path* is the file it came from, used to
-  # resolve `.so` includes; *options* enables unsafe requests.
+  # Parses roff source *text*; *path* is its file, for resolving `.so` includes.
   def self.parse(text : String, path : String? = nil, options : Options = Options.new) : Document
     Roff::Engine.new(Source.new(path), options: options).run(text)
   end
 
-  # Reads and parses the file at *path* (plain or gzip): Markdown when it is
-  # named like a Markdown document (`Markdown.file?`), roff otherwise.
+  # Reads and parses the file at *path* (plain or gzip): Markdown when
+  # `Markdown.file?` holds, roff otherwise.
   def self.load(path : String, options : Options = Options.new) : Document
     text = Source.read(path)
     Markdown.file?(path) ? Markdown.parse(text, options.highlight) : parse(text, path, options)
   end
 
-  # Finds the file of page *name* in *section* along *manpath*
-  # (`Manpath.default`: the added directories and the system path).
+  # The file of page *name* in *section* along *manpath*; `nil` when none.
   def self.find(name : String, section : String? = nil, manpath : Manpath = Manpath.default) : String?
     manpath.find(name, section)
   end

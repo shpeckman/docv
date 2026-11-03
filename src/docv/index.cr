@@ -1,74 +1,67 @@
 # src/docv/index.cr
+
 require "compress/gzip"
 
 module Docv
-  # Every page along a `Manpath` with the description from its NAME section,
-  # and the Markdown documents of its project (`Manpath#project`) with their
-  # first heading and paragraph. The project's pages and documents come
-  # first.
-  #
-  # Listing the pages is fast; describing them means parsing the start of
-  # every page, so descriptions are cached in `Index.cache_path`
-  # (`$XDG_CACHE_HOME/docv/index.tsv`). A directory whose modification
-  # time is unchanged is taken from the cache as is; in a changed directory
-  # only files with a new modification time are described again. Documents
-  # are described on every load.
-  #
-  # ```
-  # index = Docv::Index.new
-  # index.describe unless index.complete?
-  # index.entries.each { |entry| puts "#{entry.reference} - #{entry.description}" }
-  # ```
+  # The pages along a `Manpath` and the Markdown documents of its project,
+  # with their descriptions (the NAME line, or a document's first heading and
+  # paragraph), cached in `Index.cache_path`. Project entries come first.
   class Index
-    # First line of the cache file; a file with another first line is ignored.
+    # :nodoc:
+    # First line of the cache file; bump it when description extraction changes.
     HEADER = "docv-index 1"
-    FILE   = "index.tsv"
+    # :nodoc:
+    FILE = "index.tsv"
+    # :nodoc:
     # Lines read from a page while looking for the end of its NAME section.
     MAX_LINES = 2000
+    # :nodoc:
     # `.so` redirections followed for one description.
     MAX_DEPTH = 4
-    # Directory modification time written for a partly described directory,
-    # so the next load rescans it (described files are still reused).
+    # :nodoc:
+    # Mtime written for a partly described directory, so the next load rescans it.
     INCOMPLETE = -1_i64
 
-    # Headings read without meeting a NAME heading before the first heading
-    # is taken as the NAME section.
+    # :nodoc:
+    # Headings read without a NAME heading before the first one counts as NAME.
     MAX_HEADINGS = 4
 
-    # The NAME heading in the languages of translated pages.
+    # :nodoc:
+    # The NAME heading in translated pages.
     NAMES = Set{"NAME", "NAAM", "NAMN", "NAVN", "NOM", "NOMBRE", "NOME", "NAZWA", "NUME", "NIMI", "NÉV",
                 "JMÉNO", "ΟΝΟΜΑ", "ИМЯ", "НАЗВАНИЕ", "НАЗВА", "ИМЕ", "名前", "名称", "名稱", "이름"}
 
-    # A section heading request (`.SH`, `.Sh`) and its title.
+    # :nodoc:
     HEADING = /\A[.'][ \t]*S[Hh](?:\s+(.*?))?\s*\z/
-    # The start of a macro definition (whose body is not scanned for
-    # headings) and its end.
-    DEFINITION     = /\A[.'][ \t]*(?:de|de1|dei|am|am1|ami)\s/
+    # :nodoc:
+    # Macro definitions are not scanned for headings.
+    DEFINITION = /\A[.'][ \t]*(?:de|de1|dei|am|am1|ami)\s/
+    # :nodoc:
     END_DEFINITION = /\A[.'][ \t]*\.\s*\z/
-    # A `.so` request and its file.
+    # :nodoc:
     SO = /\A[.'][ \t]*so[ \t]+(\S+)/
+    # :nodoc:
     # The dash between the names and the description of a NAME line.
     SEPARATOR = / (?:-|--|—|–|−) /
 
-    # A page file, or a document of the project: its *name* is the path
-    # from the project root and its *section* is empty.
+    # An indexed page, or a project document (*name* is its path from the
+    # project root and *section* is empty).
     class Entry
       getter name : String
       getter section : String
       getter path : String
-      # Whether the page or document belongs to the project.
+      # Whether the entry belongs to the project.
       getter? project : Bool
-      # Modification time of the file in nanoseconds since the epoch.
+      # Modification time in nanoseconds since the epoch.
       getter mtime : Int64
-      # The NAME line description; empty until described, or when the page
-      # has none.
+      # The description; empty until described, or when there is none.
       property description : String
       property? described : Bool
 
       def initialize(@name, @section, @path, @mtime, @description = "", @described = false, @project = false)
       end
 
-      # The page reference, e.g. `ls(1)`; the name of a document.
+      # The page reference (`ls(1)`), or a document's name.
       def reference : String
         @section.empty? ? @name : "#{@name}(#{@section})"
       end
@@ -93,15 +86,14 @@ module Docv
 
     private record Cached, mtime : Int64, files : Array({String, Int64, String})
 
-    # The project's pages, then its documents, then the other pages; pages
-    # in section order (`Manpath::ORDER`), then by name, one entry per name
-    # and section (from the first root in the path that has it).
+    # The project's pages, its documents, then the other pages; pages by
+    # section order and name, one per name and section (the first found).
     getter entries = [] of Entry
     # The cache file, if any.
     getter cache : String?
 
     @directories = [] of Directory
-    # Entries to describe, with their directory (none for documents).
+    # Entries to describe with their directory (`nil` for documents).
     @pending = [] of {Directory?, Entry}
     @done = 0
     @dirty = false
@@ -114,8 +106,7 @@ module Docv
       scan(manpath, cached)
     end
 
-    # The default cache file: `$XDG_CACHE_HOME/docv/index.tsv`, or
-    # `~/.cache/docv/index.tsv`.
+    # The default cache file: `$XDG_CACHE_HOME/docv/index.tsv`.
     def self.cache_path : String
       File.join(Docv.user_directory("XDG_CACHE_HOME", ".cache"), FILE)
     end
@@ -131,7 +122,7 @@ module Docv
     end
 
     # Describes the remaining entries, yielding the count done and the total
-    # after each one (a caller can `Fiber.yield` there), then saves the cache.
+    # after each, then saves the cache.
     def describe(& : Int32, Int32 ->) : Nil
       total = @pending.size
       while @done < total
@@ -153,8 +144,7 @@ module Docv
       describe { }
     end
 
-    # Writes the cache when anything changed since it was read. Directories
-    # still being described are written with the descriptions done so far.
+    # Writes the cache, with the descriptions done so far, if anything changed.
     def save : Nil
       path = @cache || return
       return unless @dirty
@@ -175,10 +165,8 @@ module Docv
     rescue File::Error | IO::Error
     end
 
-    # The description in the NAME section of the page at *path*: the text
-    # after the names and their dash; for a Markdown document its first
-    # heading and paragraph (`Markdown.description`). Empty when there is
-    # none or the file cannot be read.
+    # The description of the page or Markdown document at *path*; empty when
+    # it has none or cannot be read.
     def self.description(path : String) : String
       description(path, {} of String => String, 0)
     end
@@ -196,10 +184,8 @@ module Docv
       ""
     end
 
-    # The source up to the heading after the NAME heading (after the first
-    # heading when no NAME heading turns up within `MAX_HEADINGS`). A file
-    # without headings that holds a `.so` request is an alias: its target is
-    # returned instead.
+    # The source up to the heading after NAME (or after the first heading
+    # without NAME within `MAX_HEADINGS`), or the `.so` target of an alias.
     private def self.prefix(path : String) : {String, String?}
       File.open(path) do |file|
         head = file.peek
@@ -259,7 +245,7 @@ module Docv
       (match = SEPARATOR.match(clean)) ? clean[match.end..] : clean
     end
 
-    # True for a section heading (`.SH`, `.Sh`).
+    # `.SH` or `.Sh`.
     private def self.section?(block : Block) : Bool
       block.kind.heading? && block.level == 1
     end
@@ -319,8 +305,7 @@ module Docv
       @dirty ||= @pending.any? { |directory, _| directory }
     end
 
-    # The Markdown documents of *project*, named by their path from its
-    # root, all to describe (before the pages).
+    # Named by their path from the project root; always described again.
     private def documents(project : Manpath::Project?) : Nil
       project = project || return
       project.documents.each do |path|
@@ -332,8 +317,7 @@ module Docv
       end
     end
 
-    # The pages of a section directory, or of a flat directory when
-    # *section* is empty (where every file must look like a page).
+    # A flat directory when *section* is empty, where every file must look like a page.
     private def directory(path : String, section : String, mtime : Int64, cached : Cached?, project : Bool) : Directory
       directory = Directory.new(path, section, mtime, project)
       if cached && cached.mtime == mtime

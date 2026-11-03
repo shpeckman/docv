@@ -1,4 +1,6 @@
 # src/docv/roff/env.cr
+
+# :nodoc:
 module Docv::Roff
   # The four terminal fonts; other font names map onto these.
   enum Font : UInt8
@@ -7,7 +9,7 @@ module Docv::Roff
     Italic
     BoldItalic
 
-    # Maps a font name (`R`, `B`, `I`, `BI`, `CW`, `CB`, `TBI`, ...) to a font.
+    # Maps any font name (`CW`, `CB`, `TBI`, ...) by its suffix.
     def self.from_name(name : String) : Font
       case
       when name.ends_with?("BI") || name.ends_with?("IB") then BoldItalic
@@ -17,7 +19,6 @@ module Docv::Roff
       end
     end
 
-    # The attributes this font renders with.
     def attr : Attr
       case self
       in .regular?     then Attr::None
@@ -28,7 +29,7 @@ module Docv::Roff
     end
   end
 
-  # A formatting environment (`.ev`): the state that shapes output text.
+  # A formatting environment (`.ev`); indents and lengths are in columns.
   class Env
     property font : Font = Font::Regular
     property prev_font : Font = Font::Regular
@@ -38,34 +39,32 @@ module Docv::Roff
     property prev_bg : Color = Color::DEFAULT
     property? fill : Bool = true
     property adjust : Align = Align::Both
-    # Current indent in columns.
     property indent : Int32 = 0
     property prev_indent : Int32 = 0
-    # Temporary indent of the next output line (`.ti`), in columns.
+    # `.ti`: indent of the next output line only.
     property temp_indent : Int32? = nil
-    # Input lines left to center (`.ce`) or right-justify (`.rj`).
+    # Input lines left for `.ce` and `.rj`.
     property center : Int32 = 0
     property rjust : Int32 = 0
-    # Input lines left to underline (`.ul`, `.cu`).
+    # Input lines left for `.ul`/`.cu`.
     property underline : Int32 = 0
     property tabs : Tabs = Tabs::DEFAULT
-    # Line and title lengths in columns (reported through `.l`, `.lt`).
     property line_length : Int32 = 78
     property prev_line_length : Int32 = 78
     property title_length : Int32 = 78
 
-    # Selects *font*, remembering the previous one for `\fP`.
+    # Remembers the previous font for `\fP`.
     def font=(font : Font) : Font
       @prev_font = @font
       @font = font
     end
 
-    # Restores the previous font.
+    # `\fP`: swaps back to the previous font.
     def previous_font : Nil
       @font, @prev_font = @prev_font, @font
     end
 
-    # The style id of text set in the current state.
+    # Style id for text in the current state.
     def style : UInt16
       attr = @font.attr
       attr |= Attr::Underline if @underline > 0

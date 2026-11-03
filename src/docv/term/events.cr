@@ -1,6 +1,8 @@
 # src/docv/term/events.cr
+
 module Docv::Term
-  # Kitty keyboard protocol key numbers for keys that are not text.
+  # Kitty keyboard protocol numbers of keys that are not text; a text key is
+  # its codepoint (`'x'.ord`).
   module Key
     ESCAPE    =    27
     ENTER     =    13
@@ -24,7 +26,7 @@ module Docv::Term
     PAUSE        = 57362
     MENU         = 57363
 
-    # `F1` is 57364; `F1 + n - 1` is F*n* up to F35.
+    # F*n* is `F1 + n - 1`, up to `F35`.
     F1  = 57364
     F35 = 57398
 
@@ -53,10 +55,11 @@ module Docv::Term
     MEDIA_FIRST = 57428
     MEDIA_LAST  = 57440
 
-    # Modifier keys: LEFT_SHIFT (57441) through ISO_LEVEL5_SHIFT (57454).
+    # The modifier keys themselves (left Shift through ISO level 5 Shift).
     MODIFIER_FIRST = 57441
     MODIFIER_LAST  = 57454
 
+    # :nodoc:
     # Keypad keys and the navigation keys they duplicate.
     KEYPAD = {
       KP_ENTER => ENTER, KP_LEFT => LEFT, KP_RIGHT => RIGHT, KP_UP => UP, KP_DOWN => DOWN,
@@ -64,12 +67,14 @@ module Docv::Term
       KP_INSERT => INSERT, KP_DELETE => DELETE,
     }
 
+    # :nodoc:
     # Legacy `CSI 1 ; mods <letter>` and SS3 finals.
     LETTERS = {
       'A' => UP, 'B' => DOWN, 'C' => RIGHT, 'D' => LEFT, 'E' => KP_BEGIN, 'F' => END, 'H' => HOME,
       'P' => F1, 'Q' => F1 + 1, 'R' => F1 + 2, 'S' => F1 + 3,
     }
 
+    # :nodoc:
     # Legacy `CSI number ; mods ~` keys.
     TILDE = {
       2 => INSERT, 3 => DELETE, 5 => PAGE_UP, 6 => PAGE_DOWN, 7 => HOME, 8 => END,
@@ -84,7 +89,7 @@ module Docv::Term
     end
   end
 
-  # Modifier state; the wire value is `1 +` these bits.
+  # Modifiers held with a key or mouse event.
   @[Flags]
   enum Mods : UInt8
     Shift
@@ -96,28 +101,30 @@ module Docv::Term
     CapsLock
     NumLock
 
-    # Lock bits are level state, not part of a shortcut.
+    # Lock state, not part of a shortcut.
     LOCKS = CapsLock | NumLock
     # Modifiers that make a key a command rather than text.
     COMMAND = Ctrl | Super | Hyper | Meta
 
-    # The modifiers without lock state.
+    # The modifiers without `LOCKS`.
     def normalized : Mods
       self & ~LOCKS
     end
   end
 
+  # :nodoc:
   enum KeyAction : UInt8
     Press   = 1
     Repeat  = 2
     Release = 3
   end
 
-  # A key report: key number (un-shifted codepoint or `Key` constant), the
-  # shifted and base-layout alternates, modifiers, action and text.
+  # :nodoc:
+  # *key* is the unshifted codepoint or a `Key` number.
   record KeyEvent, key : Int32, mods : Mods = Mods::None, action : KeyAction = KeyAction::Press,
     shifted : Int32? = nil, base : Int32? = nil, text : String? = nil
 
+  # :nodoc:
   enum MouseButton : UInt8
     Left
     Middle
@@ -133,6 +140,7 @@ module Docv::Term
     Aux11
   end
 
+  # :nodoc:
   enum MouseAction : UInt8
     Press
     Release
@@ -142,36 +150,40 @@ module Docv::Term
     Leave
   end
 
-  # A mouse report in raw coordinates: pixels under SGR-pixel mode (1016),
-  # 1-based cells under plain SGR (1006).
+  # :nodoc:
+  # Raw coordinates: pixels under SGR-pixel (1016), 1-based cells under SGR (1006).
   record MouseEvent, action : MouseAction, button : MouseButton, mods : Mods, x : Int32, y : Int32
 
+  # :nodoc:
   # In-band resize (`CSI 48 ; h ; w ; hpx ; wpx t`).
   record ResizeEvent, rows : Int32, cols : Int32, height : Int32, width : Int32
 
-  # Focus gained or lost.
+  # :nodoc:
   record FocusEvent, focused : Bool
 
-  # Window restored or minimized.
+  # :nodoc:
   record VisibilityEvent, visible : Bool
 
-  # Dark or light color scheme.
+  # :nodoc:
   record ColorSchemeEvent, dark : Bool
 
+  # :nodoc:
   # DECRQM answer: `value` 1 set, 2 reset, 0 unknown.
   record ModeReport, mode : Int32, value : Int32
 
+  # :nodoc:
   # Cell size in pixels (`CSI 6 ; h ; w t`).
   record CellSizeReport, height : Int32, width : Int32
 
-  # Current kitty keyboard flags (`CSI ? flags u`).
+  # :nodoc:
+  # Kitty keyboard flags (`CSI ? flags u`).
   record KeyboardFlagsReport, flags : Int32
 
-  # Terminal colors in answer to an OSC 21 query: key (`foreground`,
-  # `background`, a palette index) to value (`rgb:rr/gg/bb`, empty when
-  # unset), as the terminal sent them.
+  # :nodoc:
+  # OSC 21 answer: key (`foreground`, `background`, palette index) to `rgb:rr/gg/bb`, or empty.
   record ColorsReport, colors : Hash(String, String)
 
+  # :nodoc:
   alias Event = KeyEvent | MouseEvent | ResizeEvent | FocusEvent | VisibilityEvent | ColorSchemeEvent |
                 ModeReport | CellSizeReport | KeyboardFlagsReport | ColorsReport
 end

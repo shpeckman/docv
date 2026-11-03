@@ -1,6 +1,8 @@
 # src/docv/term/tty.cr
+
 require "base64"
 
+# :nodoc:
 lib LibDocvTty
   struct Winsize
     ws_row : UInt16
@@ -13,6 +15,7 @@ lib LibDocvTty
 end
 
 module Docv::Term
+  # :nodoc:
   # Escape sequences the viewer writes.
   module Sequences
     ALT_SCREEN_ON  = "\e[?1049h"
@@ -30,19 +33,14 @@ module Docv::Term
     NOTIFY_OFF = "\e[?2048l\e[?1004l\e[?2033l\e[?2031l"
     # Queries: pixel mouse mode, cell size, keyboard flags, visibility, scheme.
     QUERIES = "\e[?1016$p\e[16t\e[?u\e[?998n\e[?996n"
-    # OSC 21 query of the terminal theme: foreground, background and the 16
-    # ANSI colors.
+    # OSC 21 query: foreground, background and the 16 ANSI colors.
     COLORS_QUERY = "\e]21;foreground=?;background=?;#{(0..15).join(';') { |index| "#{index}=?" }}\e\\"
-    # OSC 52 clipboard write: the start before the base64 text. An invalid
-    # payload first clears the clipboard in terminals that append writes
-    # (kitty).
+    # OSC 52; the invalid `!` payload first clears terminals that append writes (kitty).
     CLIPBOARD_CLEAR = "\e]52;c;!\e\\"
     CLIPBOARD       = "\e]52;c;"
-    # OSC 8 hyperlink: the start before the URI and the string terminator
-    # after it; an empty URI ends the link.
+    # OSC 8: `HYPERLINK uri TERMINATOR`; an empty URI ends the link.
     HYPERLINK = "\e]8;;"
-    # OSC 22 pointer shape: the start before a CSS cursor name and the
-    # string terminator after it; an empty name resets the shape.
+    # OSC 22: `POINTER css-cursor-name TERMINATOR`; an empty name resets the shape.
     POINTER    = "\e]22;"
     TERMINATOR = "\e\\"
     SYNC_BEGIN = "\e[?2026h"
@@ -50,17 +48,14 @@ module Docv::Term
     RESET      = "\e[0m"
   end
 
-  # The controlling terminal: raw mode, size, and entering/leaving the
-  # full-screen state with all input reporting.
+  # The terminal a `Viewer` runs on: *input* and *output*, `STDIN` and `STDOUT` by default.
   class Tty
+    # :nodoc:
     TIOCGWINSZ = 0x5413_u64
 
-    # The color depth the environment announces: none when *no_color*
-    # (`NO_COLOR`) is set and not empty, 24-bit when *colorterm* is
-    # `truecolor` or `24bit`, 256 colors when *term* names a `256color` or
-    # `direct` terminal, the 16 ANSI colors otherwise. A terminal that
-    # answers the OSC 21 query (`Sequences::COLORS_QUERY`) shows 24-bit color
-    # whatever this says.
+    # The `ColorDepth` the environment announces: `None` for a non-empty *no_color*,
+    # `TrueColor` for a *colorterm* of `truecolor`/`24bit` or a `-direct` *term*,
+    # `Palette` for a `256color` *term*, `Ansi` otherwise.
     def self.color_depth(no_color : String? = ENV["NO_COLOR"]?, colorterm : String? = ENV["COLORTERM"]?,
                          term : String? = ENV["TERM"]?) : ColorDepth
       return ColorDepth::None if no_color && !no_color.empty?
@@ -70,7 +65,9 @@ module Docv::Term
       ColorDepth::Ansi
     end
 
+    # :nodoc:
     getter input : IO::FileDescriptor
+    # :nodoc:
     getter output : IO::FileDescriptor
     @saved : LibC::Termios? = nil
 
@@ -82,7 +79,7 @@ module Docv::Term
       @input.tty? && @output.tty?
     end
 
-    # Switches the input to raw mode, remembering the previous settings.
+    # :nodoc:
     def raw : Nil
       attributes = uninitialized LibC::Termios
       return if LibC.tcgetattr(@input.fd, pointerof(attributes)) != 0
@@ -91,7 +88,7 @@ module Docv::Term
       LibC.tcsetattr(@input.fd, LibC::TCSANOW, pointerof(attributes))
     end
 
-    # Restores the settings saved by `raw`.
+    # :nodoc:
     def restore : Nil
       if saved = @saved
         attributes = saved
@@ -100,7 +97,7 @@ module Docv::Term
       end
     end
 
-    # The window size: rows, columns, pixel width, pixel height.
+    # The window size as rows, columns, pixel width and pixel height; 24x80 when unknown.
     def size : {Int32, Int32, Int32, Int32}
       size = LibDocvTty::Winsize.new
       if LibDocvTty.ioctl(@output.fd, TIOCGWINSZ, pointerof(size)) == 0 && size.ws_col > 0
@@ -110,31 +107,32 @@ module Docv::Term
       end
     end
 
-    # Enters the alternate screen, pushes the keyboard mode inside it, and
-    # enables mouse and notification reporting.
+    # :nodoc:
+    # Raw mode, alternate screen (keyboard mode pushed inside it), mouse and notifications.
     def enter : Nil
       raw
       write(Sequences::ALT_SCREEN_ON + Sequences::KEYBOARD_PUSH + Sequences::CURSOR_HIDE +
             Sequences::MOUSE_ON + Sequences::NOTIFY_ON + Sequences::QUERIES + Sequences::COLORS_QUERY)
     end
 
-    # Asks the terminal for its theme colors again (after a color scheme
-    # change).
+    # :nodoc:
     def query_colors : Nil
       write(Sequences::COLORS_QUERY)
     end
 
+    # :nodoc:
     # Puts *text* on the system clipboard (OSC 52).
     def copy(text : String) : Nil
       write("#{Sequences::CLIPBOARD_CLEAR}#{Sequences::CLIPBOARD}#{Base64.strict_encode(text)}\e\\")
     end
 
-    # Sets the mouse pointer to the CSS cursor *shape* (`pointer`, `text`,
-    # `ew-resize` ...; OSC 22); an empty shape resets it.
+    # :nodoc:
+    # CSS cursor *shape* (OSC 22); an empty shape resets it.
     def pointer(shape : String) : Nil
       write("#{Sequences::POINTER}#{shape}#{Sequences::TERMINATOR}")
     end
 
+    # :nodoc:
     # Undoes `enter` in reverse order, resetting the pointer shape.
     def leave : Nil
       write(Sequences::POINTER + Sequences::TERMINATOR + Sequences::RESET + Sequences::NOTIFY_OFF + Sequences::MOUSE_OFF + Sequences::KEYBOARD_POP +
@@ -142,7 +140,7 @@ module Docv::Term
       restore
     end
 
-    # Writes *data* and flushes.
+    # :nodoc:
     def write(data : String | Bytes) : Nil
       @output.write(data.to_slice)
       @output.flush

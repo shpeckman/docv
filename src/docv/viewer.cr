@@ -1,4 +1,5 @@
 # src/docv/viewer.cr
+
 require "../docv"
 require "./corpus"
 require "./term/events"

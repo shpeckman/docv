@@ -1,22 +1,11 @@
 # src/docv/corpus.cr
+
 require "wait_group"
 require "../docv"
 
 module Docv
-  # The plain text of many pages, for finding text across all of them: each
-  # page laid out at `WIDTH` columns (wrapped, without header and footer),
-  # one line per line with text, its blanks at either end stripped.
-  #
-  # The text lives in a cache file (`Corpus.cache_path`) that is mapped into
-  # memory, one record per page with the page's modification time. `build`
-  # takes a page's text from the cache while the time matches and parses
-  # the other pages, then writes a new cache. Parsing allocates constantly,
-  # and the garbage collector's allocation lock keeps threads of one process
-  # from parsing faster together, so with a `Corpus.worker` command the pages
-  # are parsed by *threads* worker processes (`Corpus.serve`), otherwise one
-  # by one in this process. `count` searches every page on *threads*
-  # searcher threads, each a fiber in an isolated execution context (a
-  # thread of its own) that waits for searches on a channel.
+  # The plain text of many pages, laid out at `WIDTH` columns and cached in
+  # `Corpus.cache_path`, for counting matching lines across all of them.
   #
   # ```
   # corpus = Docv::Corpus.new
@@ -24,31 +13,32 @@ module Docv
   # corpus.count("sort time") # => [3]
   # ```
   class Corpus
+    # :nodoc:
     FILE = "text.bin"
-    # First line of the cache file; another value discards the file.
+    # :nodoc:
+    # First line of the cache file; bump it when the text or the layout changes.
     HEADER = "docv text 1"
     # Columns the pages are laid out at.
     WIDTH = 80
-    # Pages a search fiber takes at a time.
+    # :nodoc:
+    # Pages a searcher takes at a time.
     CHUNK = 64
+    # :nodoc:
     # Longest wait for a worker process to send one page.
     PAGE_TIMEOUT = 30.seconds
 
-    # The command that starts a worker process, which runs `Corpus.serve`;
-    # `nil` parses in this process. The `docv` command sets itself with its
-    # `text-worker` subcommand.
+    # The command that starts a worker process running `Corpus.serve`
+    # (`docv text-worker` for the `docv` command); `nil` parses in this process.
     class_property worker : Array(String)? = nil
 
-    # A page: its file and modification time in nanoseconds since the
-    # epoch (`Index::Entry#mtime`).
+    # A page file and its modification time in nanoseconds since the epoch
+    # (`Index::Entry#mtime`).
     record Source, path : String, mtime : Int64
 
-    # A cached record: the page's modification time, and the offset and
-    # size of its text in the cache file.
+    # Offset and size of a page's text in the cache file.
     private record Span, mtime : Int64, offset : Int64, size : Int32
 
-    # One search, shared by the searchers: they take chunks of pages in
-    # turn and write each page's count.
+    # Shared by the searchers, which take chunks of pages in turn.
     private class Search
       getter terms : Array(String)
       getter counts : Array(Int32)
@@ -64,7 +54,7 @@ module Docv
 
     # The cache file.
     getter cache : String
-    # Worker processes that parse, and fibers that search, in parallel.
+    # Number of worker processes and searcher threads.
     getter threads : Int32
     # True once `build` finished.
     getter? ready = false
@@ -74,20 +64,19 @@ module Docv
     @map : Bytes? = nil
     @searches : Channel(Search)? = nil
 
-    # A corpus cached in *cache*, working on *threads* processes and fibers
-    # (0: one less than the processor count).
+    # A corpus cached in *cache*, using *threads* worker processes and
+    # searcher threads (0: one less than the processor count).
     def initialize(@cache : String = Corpus.cache_path, threads : Int32 = 0)
       @threads = threads > 0 ? threads : Math.max(System.cpu_count.to_i - 1, 1)
     end
 
-    # The default cache file: `$XDG_CACHE_HOME/docv/text.bin`, or
-    # `~/.cache/docv/text.bin`.
+    # The default cache file: `$XDG_CACHE_HOME/docv/text.bin`.
     def self.cache_path : String
       File.join(Docv.user_directory("XDG_CACHE_HOME", ".cache"), FILE)
     end
 
-    # The text of the page at *path*: its lines at `WIDTH` columns with text,
-    # stripped, each ending in a newline. Empty when the page cannot be read.
+    # :nodoc:
+    # Stripped lines with text at `WIDTH` columns; empty when the page cannot be read.
     def self.extract(path : String) : String
       document = Docv.load(path)
       String.build do |io|
@@ -100,9 +89,8 @@ module Docv
       ""
     end
 
-    # Runs a worker process: reads page paths from *input*, one per line,
-    # and writes the size of each page's text (`extract`) on a line of its
-    # own, then the text, to *output*.
+    # The loop of a worker process (`worker`): reads page paths from *input*,
+    # one per line, and writes each page's text to *output*.
     def self.serve(input : IO = STDIN, output : IO = STDOUT) : Nil
       while path = input.gets
         text = extract(path)
@@ -111,10 +99,8 @@ module Docv
       end
     end
 
-    # Makes the text of *sources* available, in their order: from the cache
-    # where a page's modification time matches, from parsing it otherwise,
-    # writing a new cache when anything was parsed. Yields the pages parsed
-    # so far and the number to parse, in the calling fiber.
+    # Loads the text of *sources*, parsing pages whose cache entry is stale;
+    # yields the pages parsed so far and the total to parse.
     def build(sources : Array(Source), & : Int32, Int32 ->) : Nil
       @ready = false
       @sources = sources
@@ -136,18 +122,17 @@ module Docv
       build(sources) { }
     end
 
-    # The text of page *index*: lines ending in newlines; empty when the
-    # page has none or the corpus is not built.
+    # The text of the page at *index* in the sources, as newline-terminated
+    # lines; empty when it has none or the corpus is not built.
     def text(index : Int32) : Bytes
       span = @spans[index]? || return Bytes.empty
       map = @map || return Bytes.empty
       map[span.offset, span.size]
     end
 
-    # Counts, per page, the lines that every space-separated term of *query*
-    # matches (`Fuzzy#match?`), searching on `threads` threads in parallel.
-    # Returns `nil` when the query has no terms, the corpus is not built, or
-    # *cancelled* turned true meanwhile (it is called from those threads).
+    # Per page, the number of lines that fuzzily match every term of *query*.
+    # `nil` when *query* is blank, the corpus is not built, or *cancelled*
+    # (called from the searcher threads) returned true.
     def count(query : String, cancelled : Proc(Bool) = -> { false }) : Array(Int32)?
       terms = query.split
       return nil if terms.empty? || !@ready
@@ -179,7 +164,7 @@ module Docv
       count
     end
 
-    # The channel the searchers wait on, starting them on first use.
+    # Starts the searchers on first use.
     private def searches : Channel(Search)
       @searches ||= begin
         channel = Channel(Search).new(@threads)
@@ -194,7 +179,6 @@ module Docv
       end
     end
 
-    # Counts chunks of pages for *search* until none is left.
     private def run(search : Search) : Nil
       matchers = search.terms.map { |term| Fuzzy.new(term) }
       size = search.counts.size
@@ -210,13 +194,12 @@ module Docv
       search.group.done
     end
 
-    # Paths that fit the record header.
+    # Paths that fit the tab-separated record header.
     private def cacheable?(path : String) : Bool
       !path.includes?('\t') && !path.includes?('\n')
     end
 
-    # Maps the cache file and reads its records; empty when there is none or
-    # it is from another version.
+    # Maps the cache file; no records when it is missing or from another version.
     private def read_cache : Hash(String, Span)
       unmap
       spans = {} of String => Span
@@ -239,8 +222,7 @@ module Docv
       spans
     end
 
-    # Writes a new cache: the current records of *cached* that a source
-    # still has, then the pages at *missing*, parsed.
+    # The still-current records of *cached*, then the pages at *missing*, parsed.
     private def write_cache(cached : Hash(String, Span), missing : Array(Int32), & : Int32, Int32 ->) : Nil
       Dir.mkdir_p(File.dirname(@cache))
       temp = "#{@cache}.#{Process.pid}"
@@ -265,8 +247,8 @@ module Docv
       File.delete?(temp) if temp
     end
 
-    # Parses the pages at *indices*; yields each page's index, its text and
-    # the count done, in the calling fiber.
+    # Yields each page's index, its text and the count done, in the calling
+    # fiber. Processes, not threads: the GC allocation lock serializes parsing.
     private def parse(indices : Array(Int32), & : Int32, String, Int32 ->) : Nil
       unless command = Corpus.worker
         indices.each_with_index do |index, done|
@@ -289,9 +271,8 @@ module Docv
       end
     end
 
-    # Feeds the jobs to a worker process started with *command*, sending
-    # every result; a page the process fails on (or that takes longer than
-    # `PAGE_TIMEOUT`) gets no text, and a new process takes the next one.
+    # A page the process fails on or that exceeds `PAGE_TIMEOUT` gets no
+    # text, and a new process takes the next one.
     private def work(command : Array(String), paths : Hash(Int32, String), jobs : Channel(Int32),
                      results : Channel({Int32, String})) : Nil
       process = nil

@@ -1,9 +1,11 @@
 # src/docv/cell.cr
+
 module Docv
-  # Display width of characters and grapheme clusters, and interning of
-  # multi-codepoint clusters so a `Cell` stays a plain value.
+  # Display widths of characters and grapheme clusters, and the interning of
+  # multi-codepoint clusters for `Cell`.
   module Unicode
-    # Inclusive codepoint ranges displayed two columns wide.
+    # :nodoc:
+    # Inclusive codepoint ranges two columns wide.
     WIDE = [
       {0x1100, 0x115F}, {0x231A, 0x231B}, {0x2329, 0x232A}, {0x23E9, 0x23EC}, {0x23F0, 0x23F0},
       {0x23F3, 0x23F3}, {0x25FD, 0x25FE}, {0x2614, 0x2615}, {0x2648, 0x2653}, {0x267F, 0x267F},
@@ -28,7 +30,7 @@ module Docv
     @@clusters = [""]
     @@cluster_ids = Hash(String, Int32).new
 
-    # Columns taken by a single codepoint: 0, 1 or 2.
+    # Columns *char* takes: 0, 1 or 2.
     def self.width(char : Char) : Int32
       code = char.ord
       return 1 if 0x20 <= code < 0x7F
@@ -39,7 +41,7 @@ module Docv
       wide?(code) ? 2 : 1
     end
 
-    # Columns taken by a grapheme cluster.
+    # Columns a grapheme *cluster* takes.
     def self.width(cluster : String) : Int32
       return 0 if cluster.empty?
       first = cluster[0]
@@ -49,7 +51,7 @@ module Docv
       base
     end
 
-    # Columns taken by *text*, summed per grapheme cluster.
+    # Columns *text* takes.
     def self.text_width(text : String) : Int32
       return text.bytesize if text.ascii_only? && text.each_byte.all? { |byte| 0x20 <= byte < 0x7F }
       total = 0
@@ -57,8 +59,7 @@ module Docv
       total
     end
 
-    # The start of *text* that fits in *width* columns, ending in `…` when
-    # cut.
+    # The start of *text* that fits in *width* columns, ending in `…` when cut.
     def self.truncate(text : String, width : Int32) : String
       return text if text_width(text) <= width
       return "" if width < 2
@@ -74,7 +75,7 @@ module Docv
       end
     end
 
-    # Returns the interning id of a multi-codepoint cluster (`0` is unused).
+    # Interns a multi-codepoint *cluster* and returns its id (never `0`).
     def self.cluster_id(cluster : String) : Int32
       @@cluster_ids[cluster] ||= begin
         @@clusters << cluster
@@ -82,7 +83,7 @@ module Docv
       end
     end
 
-    # Returns the cluster interned as *id*.
+    # The cluster interned as *id*.
     def self.cluster(id : Int32) : String
       @@clusters[id]
     end
@@ -105,14 +106,16 @@ module Docv
     end
   end
 
-  # One grid cell: a grapheme with its rendition. A wide grapheme occupies a
-  # cell of width 2 followed by a continuation cell of width 0. The struct has
-  # no padding (12 bytes), so rows compare with `memcmp`.
+  # One grid cell: a grapheme and its style. A wide grapheme takes a cell of
+  # width 2 followed by a continuation cell of width 0.
   struct Cell
     getter ch : Char
+    # Interned cluster id (`Unicode.cluster`), `0` for a single codepoint.
     getter cluster : Int32
+    # Style id (`Styles.[]`).
     getter style : UInt16
     getter width : UInt8
+    # Explicit padding: 12 bytes without holes, so rows compare with `memcmp`.
     @pad : UInt8 = 0_u8
 
     def initialize(@ch : Char, @style : UInt16 = 0_u16, @width : UInt8 = 1_u8, @cluster : Int32 = 0)
@@ -126,7 +129,7 @@ module Docv
       Cell.new(' ', style)
     end
 
-    # Builds the cell of a grapheme cluster.
+    # The cell of grapheme *cluster* in *style*.
     def self.from(cluster : String, style : UInt16) : Cell
       first = cluster[0]
       width = Unicode.width(cluster)
@@ -134,7 +137,7 @@ module Docv
       Cell.new(first, style, Math.max(width, 1).to_u8, id)
     end
 
-    # The continuation cell after a wide cell in *style*.
+    # The continuation cell after a wide cell.
     def self.continuation(style : UInt16) : Cell
       Cell.new(' ', style, 0_u8)
     end
@@ -144,12 +147,12 @@ module Docv
       @width == 0
     end
 
-    # Returns this cell with another rendition.
+    # This cell in another *style*.
     def with_style(style : UInt16) : Cell
       Cell.new(@ch, style, @width, @cluster)
     end
 
-    # Writes the grapheme of this cell.
+    # Writes the cell's grapheme to *io*.
     def text(io : IO) : Nil
       @cluster == 0 ? (io << @ch) : (io << Unicode.cluster(@cluster))
     end

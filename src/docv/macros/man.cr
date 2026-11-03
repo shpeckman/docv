@@ -1,7 +1,8 @@
 # src/docv/macros/man.cr
+
+# :nodoc:
 module Docv::Macros
-  # The man(7) macro package (groff an.tmac and an-ext.tmac), implemented
-  # natively on the roff engine.
+  # man(7), after groff's an.tmac and an-ext.tmac.
   class Man < Roff::Package
     # Default indents in columns: body (`IN`) and subsection headings (`SN`).
     IN = 7
@@ -30,13 +31,24 @@ module Docv::Macros
                   "5" => "4.2 Berkeley Distribution", "6" => "4.3 Berkeley Distribution",
                   "7" => "4.4 Berkeley Distribution"}
 
-    @margin = IN
-    @prevailing = IN
+    # Body indent: `Options#indent`, else `IN`; subsection headings scale with it.
+    @in : Int32
+    @sn : Int32
+    @margin : Int32
+    @prevailing : Int32
     @distance = 1
     @levels = [] of {Int32, Int32}
     @link : String? = nil
-    # The builder and first block of the example in `.EX`, for highlighting.
+    # Builder and first block of the `.EX` example, for highlighting.
     @example : {Roff::Builder, Int32}? = nil
+
+    def initialize(engine : Roff::Engine)
+      super
+      @in = engine.options.indent || IN
+      @sn = (@in * SN + IN // 2) // IN
+      @margin = @in
+      @prevailing = @in
+    end
 
     def handles?(name : String) : Bool
       MACROS.includes?(name)
@@ -46,8 +58,7 @@ module Docv::Macros
       Format::Man
     end
 
-    # Highlights the example that `.EE` ends, when highlighting is on and
-    # the page's section names its language (`Syntax.page_language`).
+    # Highlights the example `.EE` ends if the page's section has a language (`Syntax.page_language`).
     private def highlight_example : Nil
       builder, start = @example || return
       @example = nil
@@ -92,7 +103,7 @@ module Docv::Macros
         @levels << {@margin, @prevailing}
         shift = @engine.split_args(line).first?.try { |text| Roff::Numeric.columns(text, 'n') } || @prevailing
         @margin += shift
-        @prevailing = IN
+        @prevailing = @in
         env.indent = @margin
       when "RE"
         builder.break_line
@@ -157,8 +168,8 @@ module Docv::Macros
       doc.source = plain(args[3]? || "")
       doc.manual = plain(args[4]? || "")
       doc.manual = MdocData::VOLUMES[doc.section[0]?.to_s]? || "" if doc.manual.empty?
-      @margin = IN
-      @prevailing = IN
+      @margin = @in
+      @prevailing = @in
       @levels.clear
       @engine.env.indent = @margin
     end
@@ -168,12 +179,12 @@ module Docv::Macros
       env = @engine.env
       builder.blank(1)
       @levels.clear
-      @margin = IN
-      @prevailing = IN
+      @margin = @in
+      @prevailing = @in
       env.fill = true
       env.center = 0
       env.indent = @margin
-      indent = level == 1 ? 0 : SN
+      indent = level == 1 ? 0 : @sn
       args = @engine.split_args(line)
       env.font = Roff::Font::Bold
       if args.empty?
@@ -193,7 +204,7 @@ module Docv::Macros
     private def paragraph : Nil
       @engine.builder.blank(@distance)
       @engine.env.font = Roff::Font::Regular
-      @prevailing = IN
+      @prevailing = @in
     end
 
     private def width(text : String?) : Nil

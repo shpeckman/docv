@@ -1,55 +1,51 @@
 # src/docv/markdown.cr
+
 require "html"
 require "uri"
 require "markd"
 
 module Docv
-  # Markdown documents: CommonMark with the GitHub extensions (tables, task
-  # lists, strikethrough, autolinks and alerts), parsed by markd into the
-  # same `Document` model as manual pages.
-  #
-  # Paragraphs fill, code blocks keep their lines, list items hang on their
-  # bullet or number, block quotes get a bar per level, tables are boxed and
-  # headings keep their level (1-6) with a GitHub-style anchor. Links become
-  # `Span#link` targets: URLs, files relative to the document and heading
-  # anchors. Raw HTML is dropped, keeping the text between the tags.
-  #
-  # ```
-  # doc = Docv::Markdown.parse(File.read("README.md"))
-  # doc.anchors["installation"] # => index of the "Installation" heading block
-  # ```
+  # Markdown documents (CommonMark with GitHub extensions) parsed into a
+  # `Document`. Links become `Span#link` targets, headings get GitHub anchors
+  # (`Document#anchors`), and raw HTML keeps only its text.
   module Markdown
     # File name extensions of Markdown documents (also with `.gz`).
     EXTENSIONS = Set{".md", ".markdown", ".mdown", ".mkd", ".mkdn"}
 
-    # Code spans keep their spaces unbreakable, so they never wrap.
+    # :nodoc:
+    # Replaces the spaces of code spans, so they never wrap.
     NO_BREAK = '\u00A0'
 
-    # Columns a block quote and a code block move their text right.
+    # :nodoc:
     QUOTE_INDENT = 2
-    CODE_INDENT  = 4
-    # Tab stops in code blocks.
+    # :nodoc:
+    CODE_INDENT = 4
+    # :nodoc:
     CODE_TABS = Tabs.new(repeat: 8)
 
-    # List bullets by nesting depth (repeating), and the boxes of task list
-    # items by state.
-    BULLETS    = ["•", "◦", "▪"]
+    # :nodoc:
+    # List bullets by nesting depth (repeating).
+    BULLETS = ["•", "◦", "▪"]
+    # :nodoc:
     CHECKBOXES = {false => "☐", true => "☑"}
 
-    # Attributes of the inline containers.
+    # :nodoc:
     ATTRIBUTES = {
       Markd::Node::Type::Strong        => Attr::Bold,
       Markd::Node::Type::Emphasis      => Attr::Italic,
       Markd::Node::Type::Strikethrough => Attr::Strike,
     }
 
-    # Table column alignments (`:--`, `:-:`, `--:`); others are left.
+    # :nodoc:
     ALIGNS = {"left" => Table::CellAlign::Left, "center" => Table::CellAlign::Center, "right" => Table::CellAlign::Right}
 
+    # :nodoc:
     # Raw HTML: comments, processing instructions, declarations and tags.
     HTML_MARKUP = /<!--.*?-->|<\?.*?\?>|<![^>]*>|<\/?[A-Za-z][^>]*>/m
+    # :nodoc:
     # The scheme that makes a link destination an absolute URL.
     SCHEME = /\A[A-Za-z][A-Za-z0-9+.\-]*:/
+    # :nodoc:
     # Characters a heading anchor leaves out.
     SLUG_DROP = /[^\p{L}\p{M}\p{N}\p{Pc}\- ]/
 
@@ -58,20 +54,18 @@ module Docv
       EXTENSIONS.includes?(File.extname(path.rchop(".gz")).downcase)
     end
 
-    # Parser options: GitHub Markdown with extended autolinks (bare URLs,
-    # `www.` and e-mail addresses), and without them.
-    OPTIONS       = Markd::Options.new(gfm: true, autolink: true)
+    # :nodoc:
+    OPTIONS = Markd::Options.new(gfm: true, autolink: true)
+    # :nodoc:
     PLAIN_OPTIONS = Markd::Options.new(gfm: true)
 
-    # Parses Markdown *text*; with *highlight*, code blocks labeled with a
-    # language are syntax highlighted (`Syntax`).
+    # Parses Markdown *text*; *highlight* syntax-highlights code blocks
+    # labeled with a language (`Syntax`).
     def self.parse(text : String, highlight : Bool = false) : Document
       Converter.new(highlight).run(tree(text))
     end
 
-    # The markd tree of *text*. Text that markd's extended autolinks cannot
-    # handle (they can step into a multibyte character next to an `@`) is
-    # parsed without them.
+    # The markd tree of *text*, parsed as GitHub Markdown.
     def self.tree(text : String) : Markd::Node
       Markd::Parser.parse(text, OPTIONS)
     rescue ArgumentError
@@ -79,21 +73,20 @@ module Docv
     end
 
     # The GitHub anchor of heading *text*: lower case, punctuation dropped,
-    # spaces turned into dashes. `Document#anchors` adds `-1`, `-2`... to
-    # repeated ones.
+    # spaces as dashes.
     def self.slug(text : String) : String
       text.downcase.gsub(SLUG_DROP, "").tr(" ", "-")
     end
 
-    # The title of an alert node (`> [!NOTE]`): its type as a word (`Note`),
-    # or the title written after the type.
+    # The title of an alert node (`> [!NOTE]`): the given title, or the type
+    # as a word (`Note`).
     def self.alert_title(node : Markd::Node) : String
       title = node.data["title"]?.to_s
       title == node.data["alert"]?.to_s ? title.capitalize : title
     end
 
-    # A one-line description of the document in *text*: its first heading
-    # and its first paragraph, joined by a dash.
+    # A one-line description of *text*: its first heading and first paragraph,
+    # joined by a dash.
     def self.description(text : String) : String
       blocks = parse(text).blocks
       heading = blocks.find(&.kind.heading?).try(&.text.strip)
@@ -104,19 +97,17 @@ module Docv
     # Builds the blocks of a markd tree.
     private class Converter
       @doc = Document.new
-      # Body indent, quote bar columns and list nesting where blocks go.
+      # Where blocks go: body indent, quote bar columns, list depth.
       @indent = 0
       @bars = [] of Int32
       @depth = 0
-      # Whether a blank line is due before the next block, and whether
-      # paragraphs stand without one (a tight list).
+      # A blank is due before the next block; tight lists go without.
       @space = false
       @tight = false
-      # The bullet or number for the next block of a list item.
+      # The list marker for the next block.
       @tag : Array(Span)? = nil
       @tag_indent = 0
-      # Rendition, markup and link of the inline text being added, and
-      # whether line breaks become spaces (headings, table cells).
+      # Inline text state; `@single_line` turns line breaks into spaces.
       @attr = Attr::None
       @markup = Markup::None
       @link = 0
@@ -180,8 +171,7 @@ module Docv
         @space = true
       end
 
-      # Items hang on their marker; the body indent is the marker's width
-      # plus a space (the widest number's for an ordered list).
+      # Body indent: the marker's width plus a space (the widest number's).
       private def list(node : Markd::Node) : Nil
         separate
         flush_tag
@@ -230,8 +220,7 @@ module Docv
         @space = true
       end
 
-      # One unfilled block per line; a fenced block with a language label
-      # is highlighted when asked to.
+      # One unfilled block per line.
       private def code(node : Markd::Node) : Nil
         style = Styles.id(Style.new(markup: Markup::CodeBlock))
         start = @doc.blocks.size
@@ -250,8 +239,7 @@ module Docv
         @space = true
       end
 
-      # The text of raw HTML without its tags, a paragraph per run of
-      # lines.
+      # Raw HTML without its tags, a paragraph per blank-separated part.
       private def html(node : Markd::Node) : Nil
         text = HTML.unescape(node.text.gsub(HTML_MARKUP, ""))
         text.split(/\n[ \t]*\n/).each do |part|
@@ -267,8 +255,6 @@ module Docv
         @space = true
       end
 
-      # A boxed table as wide as the page; the header row is bold and ruled
-      # off from the body.
       private def table(node : Markd::Node) : Nil
         table = Table.new
         row_node = node.first_child?
@@ -300,9 +286,8 @@ module Docv
 
       # --- block placement ---------------------------------------------------
 
-      # A new block after a due blank, with a pending list tag on it; a block
-      # that cannot carry a tag gets an empty text block with the tag before
-      # it.
+      # A new block after a due blank, taking the pending list tag (on an
+      # empty text block before it unless it is text).
       private def emit(kind : BlockKind) : Block
         separate
         flush_tag unless kind.text?
@@ -315,7 +300,7 @@ module Docv
         block
       end
 
-      # A new block at the current indent with the current quote bars.
+      # A new block at the current indent and quote bars.
       private def add(kind : BlockKind) : Block
         block = Block.new(kind)
         block.indent = @indent
@@ -324,7 +309,6 @@ module Docv
         block
       end
 
-      # Adds the blank line that is due, if any.
       private def separate : Nil
         return unless @space
         @space = false
@@ -350,7 +334,7 @@ module Docv
         total
       end
 
-      # Registers the anchor of the heading block at *index*.
+      # Repeated slugs get `-1`, `-2`... as on GitHub.
       private def anchor(text : String, index : Int32) : Nil
         slug = Markdown.slug(text)
         seen = @slugs[slug]?
@@ -360,8 +344,7 @@ module Docv
 
       # --- inlines -----------------------------------------------------------
 
-      # The spans of the inline content of *node*, one array per line (hard
-      # line breaks start a new one).
+      # Spans of *node*'s inlines, one array per hard-broken line.
       private def inline_lines(node : Markd::Node) : Array(Array(Span))
         lines = [[] of Span]
         inline(node, lines)
@@ -442,9 +425,7 @@ module Docv
         end
       end
 
-      # The `Span#link` of *destination*: a heading anchor (`#name`), an
-      # absolute URL, or a file relative to the document with an optional
-      # anchor; `0` for an empty destination.
+      # Interns *destination* as a `Target`; `0` when empty.
       private def target_id(destination : String) : Int32
         return 0 if destination.empty?
         target = if destination.starts_with?('#')

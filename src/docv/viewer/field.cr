@@ -1,8 +1,9 @@
 # src/docv/viewer/field.cr
+
 module Docv
   class Viewer
-    # The text of the search field: typing appends, `delete_back` removes the
-    # last grapheme.
+    # :nodoc:
+    # The text of the search field.
     class Field
       getter text : String = ""
 
@@ -10,7 +11,6 @@ module Docv
         @text.empty?
       end
 
-      # Appends *text*.
       def insert(text : String) : Nil
         @text += text
       end

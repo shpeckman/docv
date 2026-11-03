@@ -1,22 +1,21 @@
 # src/docv/roff/inline.cr
+
+# :nodoc:
 module Docv::Roff
   class Engine
-    # Formats an interpolated text line into the builder. Returns true when
-    # the line ends with `\c` (the next input line continues it).
+    # Formats an interpolated line into the builder; true when it ends with `\c`.
     def emit(text : String) : Bool
       Inline.new(self, nil).run(text)
     end
 
-    # Formats *text* into plain characters without changing any state
-    # (widths, string comparison, headings).
+    # *text* as plain characters, without touching any state (widths, comparisons).
     def plain_text(text : String) : String
       return text unless text.includes?('\\') || !@translations.empty?
       String.build { |io| Inline.new(self, io).run(text) }
     end
   end
 
-  # The inline formatter: turns escapes into characters, font and color
-  # changes, motions and continuation.
+  # Formats escapes into characters, font and color changes and motions.
   class Inline
     @buffer = String::Builder.new
     @break_after = false
@@ -24,7 +23,7 @@ module Docv::Roff
     def initialize(@engine : Engine, @sink : IO?)
     end
 
-    # Formats *text*; returns true when it ended with `\c`.
+    # True when *text* ends with `\c`.
     def run(text : String) : Bool
       continued = format(Cursor.new(text))
       flush
@@ -147,8 +146,7 @@ module Docv::Roff
       end
     end
 
-    # Applies a state change (font, color) after flushing text set in the
-    # previous state; skipped when only collecting plain text.
+    # Flushes text in the old state before a font or color change; skipped for plain text.
     private def state(&) : Nil
       return if @sink
       flush

@@ -1,7 +1,8 @@
 # src/docv/roff/numeric.cr
+
+# :nodoc:
 module Docv::Roff
-  # roff numeric expressions in basic units, as on a terminal device: one
-  # character cell is 24 units wide, one line (`v`) is 40 units high.
+  # roff numeric expressions in terminal basic units.
   module Numeric
     # Basic units per scale indicator.
     SCALE = {
@@ -10,8 +11,7 @@ module Docv::Roff
       'f' => 65536.0,
     }
 
-    # Largest column or line count a conversion yields; larger values from
-    # page typos would otherwise allocate enormous lines.
+    # Clamp for converted column and line counts; page typos would allocate huge lines.
     MAX_EXTENT = 1000
 
     # Units per character column.
@@ -37,8 +37,7 @@ module Docv::Roff
       eval(text, unit).try { |value| (value / LINE).round.clamp(-MAX_EXTENT, MAX_EXTENT).to_i }
     end
 
-    # Parses an expression at *pos*; returns the value (or `nil`) and the
-    # position after it. Operators apply left to right without precedence.
+    # Value at *pos* (or `nil`) and the position after it; operators have no precedence.
     def self.parse(text : String, pos : Int32, unit : Char) : {Int64?, Int32}
       value, pos = term(text, pos, unit)
       return {nil, pos} unless value

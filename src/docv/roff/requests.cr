@@ -1,9 +1,9 @@
 # src/docv/roff/requests.cr
+
+# :nodoc:
 module Docv::Roff
   class Engine
-    # Requests that change nothing on a terminal reflowing viewer: page
-    # geometry and traps, type sizes and spacing, hyphenation, kerning,
-    # ligatures, output devices and debugging output.
+    # Requests without effect in a reflowing terminal viewer.
     NO_OP = Set{
       "bd", "class", "color", "composite", "cp", "cs", "device", "devicem", "dt", "fam",
       "fc", "fl", "fspecial", "fzoom", "hc", "hcode", "hla", "hlm", "hpf", "hpfa", "hpfcode", "hw",
@@ -15,11 +15,10 @@ module Docv::Roff
       "asciify", "unformat", "tc",
     }
 
-    # Requests that cause a break unless called with the no-break control
-    # character.
+    # Requests that break unless called with the no-break control character.
     BREAKING = Set{"bp", "br", "brp", "ce", "fi", "nf", "rj", "sp", "in", "ti"}
 
-    # Runs a roff request; returns false when *name* is not a request.
+    # False when *name* is not a request.
     def request(name : String, raw : String, no_break : Bool) : Bool
       if UNSAFE.includes?(name)
         if @options.unsafe
@@ -287,7 +286,7 @@ module Docv::Roff
       end
     end
 
-    # Applies a relative (`+N`, `-N`) or absolute value in columns.
+    # A relative (`+N`, `-N`) or absolute value in columns.
     private def relative(text : String, current : Int32) : Int32?
       return nil if text.empty?
       sign = text[0]

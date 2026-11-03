@@ -1,20 +1,21 @@
 # src/docv/layout.cr
+
 module Docv
-  # Turns a `Document` into lines of cells for a given width. Wrapped layout
-  # fills paragraphs to the width; unwrapped layout puts each paragraph on a
-  # single line. Unfilled text and tables never wrap.
+  # Lays out a `Document` as lines of cells. Wrapped layout fills paragraphs
+  # to the width; unwrapped layout puts each on one line. Unfilled text and
+  # tables never wrap.
   class Layout
-    # A link on a line: a span link of the document (`Span#link`), or a
-    # cross-reference (`name(section)`) found in the text.
+    # A link on a line: a span link (`Span#link`) or a `name(section)`
+    # cross-reference found in the text.
     record Link, col : Int32, width : Int32, target : Target
 
     # One output line.
     class Line
       getter cells : Array(Cell)
-      # Index of the block the line belongs to (`-1` for header and footer).
+      # Index of the line's block (`-1` for header and footer).
       getter block : Int32
-      # Character offset of the line's first word within its block, used to
-      # keep the reading position across layouts.
+      # Character offset of the first word within its block (to keep the
+      # reading position across layouts).
       getter offset : Int32
       getter links : Array(Link)
 
@@ -33,7 +34,7 @@ module Docv
         end
       end
 
-      # The line as text plus the column of every character, for search.
+      # The line's text and the column of each of its characters.
       def text_columns : {String, Array(Int32)}
         columns = [] of Int32
         text = String.build do |io|
@@ -48,8 +49,8 @@ module Docv
       end
     end
 
-    # A word, a run of blanks or a tab, ready to be placed. A word with
-    # linked text has the `Span#link` of each of its cells in *links*.
+    # :nodoc:
+    # A word, a run of blanks or a tab; a linked word has each cell's `Span#link`.
     struct Piece
       enum Kind : UInt8
         Word
@@ -68,6 +69,7 @@ module Docv
       end
     end
 
+    # :nodoc:
     # A line under construction.
     class Row
       getter cells = [] of Cell
@@ -89,11 +91,14 @@ module Docv
       end
     end
 
+    # :nodoc:
+    # A `name(section)` cross-reference.
     LINK = /(?<![\w.\-])([A-Za-z_][\w.:+\-@]*)\(([0-9][a-zA-Z0-9]*|n|l)\)/
 
-    # Drawn at each `Block#bars` column, and across a `BlockKind::Rule`.
+    # :nodoc:
     QUOTE_BAR = '│'
-    RULE      = '─'
+    # :nodoc:
+    RULE = '─'
 
     getter document : Document
 
@@ -103,10 +108,8 @@ module Docv
     def initialize(@document : Document)
     end
 
-    # Lays out the document for *width* columns. With *header* the lines
-    # start with the page header (`header_line`) and a blank line; with
-    # *footer* they end with a blank line and the page footer
-    # (`footer_line`).
+    # The document laid out for *width* columns, filled when *wrap*. *header*
+    # and *footer* add `header_line` and `footer_line`, set off by a blank line.
     def lines(width : Int32, wrap : Bool = true, header : Bool = true, footer : Bool = true) : Array(Line)
       width = Math.max(width, 10)
       limit = wrap ? width : Int32::MAX
@@ -133,17 +136,16 @@ module Docv
       lines
     end
 
-    # The page header for *width* columns: the reference, the manual title
-    # centered and the reference again. `nil` when the document has no
-    # title, and for Markdown.
+    # The page header: reference, manual title centered, reference; `nil`
+    # without a title and for Markdown.
     def header_line(width : Int32) : Line?
       doc = @document
       return nil if doc.title.empty? || doc.format.markdown?
       three_part(doc.reference, doc.manual, doc.reference, Math.max(width, 10))
     end
 
-    # The page footer for *width* columns: the source, the date centered and
-    # the reference. `nil` when the document has no title, and for Markdown.
+    # The page footer: source, date centered, reference; `nil` without a title
+    # and for Markdown.
     def footer_line(width : Int32) : Line?
       doc = @document
       return nil if doc.title.empty? || doc.format.markdown?
@@ -208,7 +210,6 @@ module Docv
       end
     end
 
-    # A horizontal rule from *indent* to the end of *width*.
     private def rule_row(indent : Int32, width : Int32) : Row
       row = Row.new
       row.pad(indent)
@@ -217,7 +218,6 @@ module Docv
       row
     end
 
-    # Puts a quote bar at each of the *bars* columns of *row*.
     private def bar(row : Row, bars : Array(Int32)) : Nil
       cell = Cell.new(QUOTE_BAR, @quote_style)
       bars.each do |col|
@@ -226,13 +226,12 @@ module Docv
       end
     end
 
-    # Splits spans into words, blank runs and tabs.
+    # :nodoc:
     def tokenize(spans : Array(Span)) : Array(Piece)
       Tokenizer.new(spans.any? { |span| span.link != 0 }).run(spans)
     end
 
-    # Builds pieces from spans; ASCII text skips grapheme segmentation. With
-    # *linked* the link of every cell is kept.
+    # ASCII spans skip grapheme segmentation; *linked* keeps every cell's link.
     private class Tokenizer
       @pieces = [] of Piece
       @cells = [] of Cell
@@ -285,7 +284,7 @@ module Docv
         @pieces
       end
 
-      # Gives the cells added for the current grapheme the link *id*.
+      # Gives the current grapheme's cells (one or two) the link *id*.
       private def link(id : Int32) : Nil
         return unless @linked
         while @links.size < @cells.size
@@ -322,7 +321,7 @@ module Docv
       end
     end
 
-    # Appends the cell(s) of a grapheme cluster.
+    # :nodoc:
     def self.append(cells : Array(Cell), cluster : String, style : UInt16) : Nil
       return if cluster.empty?
       cell = Cell.from(cluster, style)
@@ -333,8 +332,8 @@ module Docv
       cells << Cell.continuation(style) if cell.width == 2
     end
 
-    # Places *pieces* into rows: the first row starts at *first* (or
-    # continues *start*), wrapped rows at *rest*, filling up to *limit*.
+    # :nodoc:
+    # The first row starts at *first* (or continues *start*), wrapped rows at *rest*.
     def flow(pieces : Array(Piece), first : Int32, rest : Int32, limit : Int32, fill : Bool, tabs : Tabs, start : Row? = nil) : Array(Row)
       rows = [] of Row
       row = start || Row.new
@@ -377,10 +376,8 @@ module Docv
       rows << row if finish
     end
 
-    # Adds the links of *piece*, about to be placed at the end of *row*:
-    # its span links (a link continues one of the same target that ends
-    # before it on the row with only blanks between), or else the
-    # cross-references in its text.
+    # Span links of *piece* (extending a same-target link before it across
+    # blanks), or else the `LINK` cross-references in its text.
     private def links(row : Row, piece : Piece) : Nil
       if ids = piece.links
         start = 0

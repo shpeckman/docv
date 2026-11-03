@@ -46,24 +46,34 @@ describe Docv::Config do
   end
 
   it "reads the dock and search settings" do
-    Docv::Config.parse("").viewer.should eq Docv::ViewerSettings.new
-    Docv::Config.parse(Docv::Config::DEFAULT).viewer.should eq Docv::ViewerSettings.new
-    settings = Docv::Config.parse("[viewer]\ndock = Overlay\ndock-width = 50\ndock-open = yes\nsearch-threads = 4\n").viewer
-    settings.should eq Docv::ViewerSettings.new(Docv::DockStyle::Overlay, 50, true, 4)
-    expect_raises(Docv::Config::Error, /dock must be regular or overlay/) { Docv::Config.parse("[viewer]\ndock = left\n") }
-    expect_raises(Docv::Config::Error, /dock-width must be a number from 16/) { Docv::Config.parse("[viewer]\ndock-width = 3\n") }
-    expect_raises(Docv::Config::Error, /search-threads must be a number/) { Docv::Config.parse("[viewer]\nsearch-threads = many\n") }
+    Docv::Config.parse("").picker.should eq Docv::PickerSettings.new
+    Docv::Config.parse(Docv::Config::DEFAULT).picker.should eq Docv::PickerSettings.new
+    text = "[picker]\ndock = Overlay\ndock-width = 50\ndock-open = yes\nmin-group = 5\nsearch-threads = 4\n"
+    Docv::Config.parse(text).picker.should eq Docv::PickerSettings.new(Docv::DockStyle::Overlay, 50, true, 5, 4)
+    expect_raises(Docv::Config::Error, /dock must be regular or overlay/) { Docv::Config.parse("[picker]\ndock = left\n") }
+    expect_raises(Docv::Config::Error, /dock-width must be a number from 16/) { Docv::Config.parse("[picker]\ndock-width = 3\n") }
+    expect_raises(Docv::Config::Error, /min-group must be a number from 2/) { Docv::Config.parse("[picker]\nmin-group = 1\n") }
+    expect_raises(Docv::Config::Error, /unknown key dock in \[viewer\]/) { Docv::Config.parse("[viewer]\ndock = overlay\n") }
+  end
+
+  it "reads the man page settings" do
+    Docv::Config.parse("").indent.should be_nil
+    Docv::Config.parse(Docv::Config::DEFAULT).indent.should be_nil
+    config = Docv::Config.parse("[man]\nroff-unsafe = yes\nindent = 4\n")
+    {config.unsafe?, config.indent}.should eq({true, 4})
+    config.options.indent.should eq 4
+    expect_raises(Docv::Config::Error, /unknown section \[roff\]/) { Docv::Config.parse("[roff]\nunsafe = yes\n") }
   end
 
   it "parses booleans" do
-    Docv::Config.parse("[roff]\nunsafe = yes\n").unsafe?.should be_true
-    Docv::Config.parse("[roff]\nunsafe = Off\n").unsafe?.should be_false
+    Docv::Config.parse("[man]\nroff-unsafe = yes\n").unsafe?.should be_true
+    Docv::Config.parse("[man]\nroff-unsafe = Off\n").unsafe?.should be_false
     Docv::Config.parse("").unsafe?.should be_false
   end
 
   it "rejects invalid values, unknown keys and sections" do
-    expect_raises(Docv::Config::Error, /true or false/) { Docv::Config.parse("[roff]\nunsafe = maybe\n") }
-    expect_raises(Docv::Config::Error, /unknown key/) { Docv::Config.parse("[roff]\nfoo = 1\n") }
+    expect_raises(Docv::Config::Error, /true or false/) { Docv::Config.parse("[man]\nroff-unsafe = maybe\n") }
+    expect_raises(Docv::Config::Error, /unknown key/) { Docv::Config.parse("[man]\nfoo = 1\n") }
     expect_raises(Docv::Config::Error, /unknown section/) { Docv::Config.parse("[other]\n") }
   end
 

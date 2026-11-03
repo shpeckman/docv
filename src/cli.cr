@@ -1,12 +1,10 @@
 # src/cli.cr
+
 require "./docv/viewer"
 require "./docv/crystal_pages"
 
-# The `docv` command: shows a manual page or a Markdown document in the
-# viewer, or prints it as text when standard output is not a terminal.
-# Without a page it opens the viewer on an empty page, the dock closed.
-# `path-add`, `path-rm` and `path-list` manage the added man page
-# directories; `gen-cr` generates the man pages of a Crystal shard.
+# :nodoc:
+# The `docv` command.
 module Docv::CLI
   USAGE = <<-TEXT
     usage: docv [-u]
@@ -36,7 +34,7 @@ module Docv::CLI
       path-list         print the search path and where each entry comes from
       gen-cr            generate man pages of the Crystal shard at or above
                         shard (default: the current directory) from README.md
-                        and its doc comments: name.7cr and Type.3cr pages in
+                        and its doc comments: name.7cr and foo-bar.3cr pages in
                         dir (default: man), relative to the shard root
       text-worker       (used by the viewer) read page paths from standard
                         input and write the text of each page to standard
@@ -80,14 +78,14 @@ module Docv::CLI
     manpath = Manpath.default(Dir.current)
     if names.empty?
       viewer = Viewer.new(wrap: wrap, manpath: manpath, tty: tty, options: config.options, theme: config.theme,
-        settings: config.viewer)
+        settings: config.picker)
       viewer.run
       return 0
     end
     path = resolve(names, manpath) || return 1
     document = Docv.load(path, config.options(STDIN))
     if tty.tty?
-      Viewer.new(document, path, wrap, manpath, tty, config.options, config.theme, settings: config.viewer).run
+      Viewer.new(document, path, wrap, manpath, tty, config.options, config.theme, settings: config.picker).run
     else
       width = ENV["MANWIDTH"]?.try(&.to_i?) || 80
       Layout.new(document).lines(width, wrap).each { |line| STDOUT.puts line.text.rstrip }
@@ -103,7 +101,7 @@ module Docv::CLI
     2
   end
 
-  # Loads (or creates) the configuration; `nil` when it is invalid.
+  # Creates the file on first run; `nil` when it is invalid.
   private def self.configuration : Config?
     Config.load
   rescue ex : Config::Error
@@ -131,7 +129,7 @@ module Docv::CLI
     found
   end
 
-  # Adds directories to the added list; all must exist.
+  # All directories must exist.
   private def self.path_add(dirs : Array(String)) : Int32
     return usage_error if dirs.empty?
     missing = dirs.reject { |dir| Dir.exists?(Manpath.absolute(dir)) }
@@ -154,7 +152,7 @@ module Docv::CLI
     1
   end
 
-  # Removes directories from the added list; fails for one not in it.
+  # Fails for a directory that was not added.
   private def self.path_rm(dirs : Array(String)) : Int32
     return usage_error if dirs.empty?
     removed = Manpath.remove_paths(dirs)
@@ -173,9 +171,7 @@ module Docv::CLI
     1
   end
 
-  # Generates the man pages of the shard at or above the directory in
-  # *args* (the current one by default) into `-o dir`, relative to the shard
-  # root (`CrystalPages::OUTPUT` by default).
+  # `gen-cr [-o dir] [shard]`; *dir* is relative to the shard root.
   private def self.gen_cr(args : Array(String)) : Int32
     output = CrystalPages::OUTPUT
     dirs = [] of String
@@ -205,8 +201,7 @@ module Docv::CLI
     1
   end
 
-  # Prints the search path in order, each entry with its source (`project`,
-  # `added`, `system`); `(pages)` marks a directory with pages in it.
+  # Each root with its source (`project`, `added`, `system`); `(pages)` marks a flat one.
   private def self.path_list : Int32
     project = Manpath.discover(Dir.current)
     added = Manpath.read_paths

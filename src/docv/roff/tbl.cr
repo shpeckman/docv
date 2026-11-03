@@ -1,9 +1,10 @@
 # src/docv/roff/tbl.cr
+
+# :nodoc:
 module Docv::Roff
-  # The tbl(1) preprocessor: reads a `.TS` ... `.TE` region from the input
-  # and adds a `Table` block.
+  # tbl(1): reads a `.TS` ... `.TE` region into a `Table` block.
   class Tbl
-    # The layout of one cell from a format row.
+    # One cell of a format row.
     record Spec, kind : Table::CellKind, align : Table::CellAlign, font : Font?, width : Int32, gap : Int32
 
     @tab = '\t'
@@ -14,7 +15,6 @@ module Docv::Roff
     def initialize(@engine : Engine)
     end
 
-    # Reads the table body from the input stack and emits it.
     def run(args : String) : Nil
       lines = read_region
       index = 0
