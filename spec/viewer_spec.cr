@@ -149,14 +149,20 @@ end
 
 describe Docv::Viewer::Help do
   help = Docv::Viewer::Help.new(Docv::Viewer::Bindings.new, Docv::Viewer::FieldBindings.new)
+  line = ->(keys : String, text : String, depth : Int32) { Docv::Viewer::Help::Line.new(keys, text, depth) }
 
-  it "lists every bound action with its keys, the search bar and panel keys and the mouse" do
-    help.lines.find! { |line| line.text == "top" }.keys.should eq "PgUp"
-    help.lines.find! { |line| line.text == "this help" }.keys.should eq "F1"
-    help.lines.find! { |line| line.text == "previous match or page" }.keys.should eq "↑"
-    help.lines.find! { |line| line.text == "back to the page" }.keys.should eq "Esc"
-    help.lines.select(&.heading).map(&.keys).should eq ["Keys", "Search field", "Tree", "Mouse"]
-    Docv::Viewer::ACTION_HELP.keys.should eq Docv::Viewer::Action.values
+  it "groups keys, mouse and configuration under indented headings" do
+    help.entries.select(&.heading).map { |entry| {entry.keys, entry.depth} }.should eq [
+      {"KEYS", 0}, {"General", 1}, {"Viewer", 1}, {"Search field", 1}, {"Picker", 1}, {"MOUSE", 0}, {"CONFIG", 0},
+    ]
+    help.entries.find!(&.text.==("top")).should eq line.call("PgUp", "top", 2)
+    help.entries.find!(&.text.==("help")).should eq line.call("F1", "help", 2)
+    help.entries.find!(&.text.==("previous match or page")).keys.should eq "↑"
+    help.entries.find!(&.text.==("to the viewer")).keys.should eq "Esc"
+    help.entries.find!(&.keys.==("wheel")).depth.should eq 1
+    help.entries.find!(&.keys.==("[picker]")).text.should eq "dock-width, dock-open, min-group, search-threads"
+    help.entries.find!(&.keys.==("[colors]")).text.should eq "a style per role"
+    Docv::Viewer::ACTION_HELP.values.flat_map(&.keys).sort_by(&.value).should eq Docv::Viewer::Action.values
     Docv::Viewer::FIELD_HELP.keys.should eq Docv::Viewer::FieldAction.values
     Docv::Viewer::TREE_HELP.keys.should eq Docv::Viewer::TreeAction.values
   end
@@ -167,41 +173,56 @@ describe Docv::Viewer::Help do
     Docv::Viewer::Help.key_name(Docv::Term::Mods::None, Docv::Term::Key::F1 + 4).should eq "F5"
   end
 
+  it "wraps descriptions at the description column" do
+    Docv::Viewer::Help.wrap("one two three", 7).should eq ["one two", "three"]
+    Docv::Viewer::Help.wrap("unbreakable", 4).should eq ["unbreakable"]
+    frame = Docv::Viewer::Frame.new(30, 60)
+    lines = help.lines(frame)
+    lines.size.should be > help.entries.size
+    index = lines.index!(&.text.starts_with?("open the page, or"))
+    lines[index].keys.should eq "Enter"
+    lines[index + 1].keys.should eq ""
+    lines.each do |wrapped|
+      next if wrapped.heading || wrapped.keys == "file"
+      (help.column + Docv::Unicode.text_width(wrapped.text)).should be <= frame.content_cols
+    end
+  end
+
   it "scrolls within the page area" do
     small = Docv::Viewer::Frame.new(12, 80)
     scroller = Docv::Viewer::Help.new(Docv::Viewer::Bindings.new, Docv::Viewer::FieldBindings.new)
     scroller.rows(small).should eq 8
     scroller.scroll(1000, small)
-    scroller.top.should eq scroller.lines.size - 8
+    scroller.top.should eq scroller.lines(small).size - 8
     scroller.max_top(small).should eq scroller.top
     scroller.scroll(-1000, small)
     scroller.top.should eq 0
   end
 
-  it "scrolls sideways within its widest line" do
+  it "scrolls sideways when the screen is narrower than its narrowest description" do
     narrow = Docv::Viewer::Frame.new(30, 30)
     scroller = Docv::Viewer::Help.new(Docv::Viewer::Bindings.new, Docv::Viewer::FieldBindings.new)
-    scroller.width.should be > narrow.content_cols
+    scroller.width(narrow).should be > narrow.content_cols
     scroller.scroll_x(1000, narrow)
-    scroller.left.should eq scroller.width - narrow.content_cols
-    scroller.scroll_x(-3, narrow)
-    scroller.left.should eq scroller.width - narrow.content_cols - 3
+    scroller.left.should eq scroller.width(narrow) - narrow.content_cols
     screen = Docv::Screen.new(30, 30)
     styles = Docv::Theme.new.styles(Docv::Palette.new(true), Docv::ColorDepth::TrueColor)
     scroller.scroll_x(-1000, narrow)
     scroller.scroll_x(2, narrow)
     scroller.draw(screen, narrow, styles)
-    screen[Docv::Viewer::Frame::TOP, 1].ch.should eq 'y'
-    screen[Docv::Viewer::Frame::TOP + 1, 1].ch.should eq 'U'
+    screen[Docv::Viewer::Frame::TOP, 1].ch.should eq 'Y'
+    screen[Docv::Viewer::Frame::TOP + 1, 1].ch.should eq 'G'
   end
 
-  it "draws in the page area, after the dock" do
+  it "draws in the page area, after the dock, indented by depth" do
     docked = Docv::Viewer::Frame.new(30, 100, 20)
     screen = Docv::Screen.new(30, 100)
     styles = Docv::Theme.new.styles(Docv::Palette.new(true), Docv::ColorDepth::TrueColor)
     help.draw(screen, docked, styles)
     screen[Docv::Viewer::Frame::TOP, 21].ch.should eq 'K'
-    screen[Docv::Viewer::Frame::TOP + 1, 21].ch.should eq 'P'
+    screen[Docv::Viewer::Frame::TOP + 1, 23].ch.should eq 'G'
+    screen[Docv::Viewer::Frame::TOP + 2, 25].ch.should eq 'F'
+    screen[Docv::Viewer::Frame::TOP + 2, 21 + help.column].ch.should eq 'h'
     screen[Docv::Viewer::Frame::TOP, 20].ch.should eq ' '
   end
 end

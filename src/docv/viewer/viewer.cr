@@ -455,8 +455,8 @@ module Docv
       help = @help || return
       case @bindings.lookup(event)
       when .nil?    then @help = nil
-      when .top?    then help.scroll(-help.lines.size, @frame)
-      when .bottom? then help.scroll(help.lines.size, @frame)
+      when .top?    then help.scroll(-help.lines(@frame).size, @frame)
+      when .bottom? then help.scroll(help.lines(@frame).size, @frame)
       else               @help = nil
       end
     end
@@ -1059,14 +1059,14 @@ module Docv
 
     private def vertical_thumb : {Int32, Int32}
       if help = @help
-        return Frame.thumb(content_rows, help.rows(@frame), help.lines.size, help.top, help.max_top(@frame))
+        return Frame.thumb(content_rows, help.rows(@frame), help.lines(@frame).size, help.top, help.max_top(@frame))
       end
       Frame.thumb(content_rows, page_rows, @lines.size, @top, max_top)
     end
 
     private def horizontal_thumb : {Int32, Int32}
       if help = @help
-        return Frame.thumb(@frame.inner_cols, content_cols, help.width, help.left, help.max_left(@frame))
+        return Frame.thumb(@frame.inner_cols, content_cols, help.width(@frame), help.left, help.max_left(@frame))
       end
       Frame.thumb(@frame.inner_cols, content_cols, @max_width, @left, max_left)
     end
@@ -1434,7 +1434,8 @@ module Docv
       end
       if help = @help
         rows = help.rows(@frame)
-        parts << "#{help.top + 1}-#{Math.min(help.top + rows, help.lines.size)}/#{help.lines.size}"
+        total = help.lines(@frame).size
+        parts << "#{help.top + 1}-#{Math.min(help.top + rows, total)}/#{total}"
         parts << "col #{help.left + 1}"
       else
         parts << (@wrap ? "[wrap]" : "[nowrap]")

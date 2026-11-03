@@ -3,32 +3,46 @@
 module Docv
   class Viewer
     # :nodoc:
-    # The help screen, built from the current bindings.
+    # The help screen, built from the current bindings: keys, mouse and
+    # configuration under indented headings, descriptions wrapped to the width.
     class Help
-      # Keys or a gesture and what they do, or a section title when *heading*.
-      record Line, keys : String, text : String = "", heading : Bool = false
+      # A heading, or keys (a gesture, a setting) and what they do, indented
+      # by *depth*; continuation lines of a wrapped description have no keys.
+      record Line, keys : String, text : String = "", depth : Int32 = 0, heading : Bool = false
 
       # Title row heading while the help is shown.
       TITLE = "HELP"
-      # Widest keys column.
-      KEYS_WIDTH = 30
+      # Columns per depth.
+      INDENT = 2
+      # Widest keys column, indentation included; longer keys put their
+      # description on the next line.
+      KEYS_WIDTH = 24
+      # Narrowest description; narrower screens scroll the help sideways.
+      MIN_TEXT = 20
+
+      # Lines of the search field and the picker besides their bindings.
+      FIELD_TEXT = {"text", "find in the page; with a leading /, search all pages"}
+      TREE_OTHER = {"other keys", "as in the viewer"}
 
       MOUSE = [
         {"wheel", "scroll"},
-        {"Shift-wheel", "scroll sideways (the page or the tree)"},
-        {"drag in the text", "select and copy"},
-        {"double-click a word", "select and copy it"},
-        {"triple-click", "select and copy the paragraph"},
-        {"drag a thumb, click a track", "scroll"},
+        {"Shift-wheel", "scroll sideways"},
+        {"scrollbar", "drag or click to scroll"},
+        {"drag over text", "select and copy"},
+        {"double-click", "copy the word"},
+        {"triple-click", "copy the paragraph"},
         {"click a link", "follow it"},
-        {"click a page or group in the tree", "open it, or fold or unfold it"},
+        {"click a picker row", "open the page, or fold or unfold the group"},
         {"click the search field", "focus it"},
         {"drag the dock's edge", "resize the dock"},
-        {"click #{Frame::NAME}", "this help"},
-        {"point at the page's heading", "show its source and date"},
+        {"click #{Frame::NAME}", "help"},
+        {"point at the heading", "show the page's source and date"},
         {"click #{Frame::CLOSE}", "quit"},
-        {"back button", "back to the previous page"},
+        {"back button", "back"},
       ]
+
+      # Descriptions of `[section]`s other than their list of keys.
+      CONFIG_TEXT = {"colors" => "a style per role"}
 
       # Names of keys that are not text.
       KEY_NAMES = {
@@ -45,40 +59,89 @@ module Docv
         {Term::Mods::Shift, "Shift-"},
       ]
 
-      getter lines = [] of Line
+      # Lines before wrapping.
+      getter entries = [] of Line
       # First visible line.
       getter top = 0
       # Columns scrolled sideways.
       getter left = 0
-      # Columns of the keys column and of the widest line.
-      getter keys_width = 0
-      getter width = 0
+      # Column of the descriptions, from the left of the help.
+      getter column = 0
+      @lines = [] of Line
+      @cols = -1
+      @width = 0
 
       def initialize(bindings : Bindings, field_bindings : FieldBindings,
                      tree_bindings : TreeBindings = TreeBindings.new)
-        section("Keys")
-        Action.values.each do |action|
-          keys = bindings.keys(action)
-          @lines << Line.new(names(keys), ACTION_HELP[action]) unless keys.empty?
+        heading("KEYS", 0)
+        ACTION_HELP.each do |title, actions|
+          heading(title, 1)
+          actions.each { |action, text| bound(bindings.keys(action), text) }
         end
-        section("Search field")
-        @lines << Line.new("text", "type: find in the page; a leading / searches the manual")
-        FieldAction.values.each do |action|
-          keys = field_bindings.keys(action)
-          @lines << Line.new(names(keys), FIELD_HELP[action]) unless keys.empty?
+        heading("Search field", 1)
+        @entries << Line.new(*FIELD_TEXT, 2)
+        FIELD_HELP.each { |action, text| bound(field_bindings.keys(action), text) }
+        heading("Picker", 1)
+        TREE_HELP.each { |action, text| bound(tree_bindings.keys(action), text) }
+        @entries << Line.new(*TREE_OTHER, 2)
+        heading("MOUSE", 0)
+        MOUSE.each { |gesture, text| @entries << Line.new(gesture, text, 1) }
+        heading("CONFIG", 0)
+        @entries << Line.new("file", Config.path, 1)
+        Config::KEYS.each do |name, keys|
+          @entries << Line.new("[#{name}]", CONFIG_TEXT[name]? || keys.join(", "), 1)
         end
-        section("Tree")
-        TreeAction.values.each do |action|
-          keys = tree_bindings.keys(action)
-          @lines << Line.new(names(keys), TREE_HELP[action]) unless keys.empty?
+        @entries << Line.new("docv-config(5)", "every setting", 1)
+        widest = @entries.max_of { |line| line.heading ? 0 : line.depth * INDENT + Unicode.text_width(line.keys) }
+        @column = Math.min(widest, KEYS_WIDTH) + 2
+      end
+
+      # The lines for *frame*, descriptions wrapped to its width.
+      def lines(frame : Frame) : Array(Line)
+        cols = frame.content_cols
+        return @lines if cols == @cols
+        @cols = cols
+        @lines = [] of Line
+        span = Math.max(cols - @column, MIN_TEXT)
+        @entries.each do |entry|
+          next @lines << entry if entry.heading || entry.text.empty?
+          parts = Help.wrap(entry.text, span)
+          if entry.depth * INDENT + Unicode.text_width(entry.keys) + 2 > @column
+            @lines << Line.new(entry.keys, "", entry.depth)
+          else
+            @lines << Line.new(entry.keys, parts.shift, entry.depth)
+          end
+          parts.each { |part| @lines << Line.new("", part, entry.depth) }
         end
-        @lines << Line.new("other keys", "go to the page")
-        section("Mouse")
-        MOUSE.each { |gesture, text| @lines << Line.new(gesture, text) }
-        @keys_width = Math.min(@lines.max_of { |line| line.heading ? 0 : Unicode.text_width(line.keys) }, KEYS_WIDTH)
         @width = @lines.max_of do |line|
-          line.heading ? Unicode.text_width(line.keys) : @keys_width + 2 + Unicode.text_width(line.text)
+          line.text.empty? ? line.depth * INDENT + Unicode.text_width(line.keys) : @column + Unicode.text_width(line.text)
         end
+        @top = @top.clamp(0, max_top(frame))
+        @left = @left.clamp(0, max_left(frame))
+        @lines
+      end
+
+      # Columns of the widest line on *frame*.
+      def width(frame : Frame) : Int32
+        lines(frame)
+        @width
+      end
+
+      # *text* split at spaces into lines of at most *width* columns; a longer
+      # word takes a line of its own.
+      def self.wrap(text : String, width : Int32) : Array(String)
+        lines = [] of String
+        current = ""
+        text.split(' ', remove_empty: true).each do |word|
+          candidate = current.empty? ? word : "#{current} #{word}"
+          if current.empty? || Unicode.text_width(candidate) <= width
+            current = candidate
+          else
+            lines << current
+            current = word
+          end
+        end
+        lines << current
       end
 
       # The name of a key binding: `j`, `Ctrl-f`, `Shift-Tab`, `F5`.
@@ -100,7 +163,7 @@ module Docv
       end
 
       def max_top(frame : Frame) : Int32
-        Math.max(@lines.size - rows(frame), 0)
+        Math.max(lines(frame).size - rows(frame), 0)
       end
 
       def scroll_x(delta : Int32, frame : Frame) : Nil
@@ -108,23 +171,24 @@ module Docv
       end
 
       def max_left(frame : Frame) : Int32
-        Math.max(@width - frame.content_cols, 0)
+        Math.max(width(frame) - frame.content_cols, 0)
       end
 
       def draw(screen : Screen, frame : Frame, styles : Array(UInt16)) : Nil
+        lines = lines(frame)
         origin = frame.left
         limit = origin + frame.content_cols
         start = origin - @left
         rows(frame).times do |offset|
-          entry = @lines[@top + offset]? || break
+          line = lines[@top + offset]? || break
           y = Frame::TOP + offset
-          if entry.heading
-            put(screen, y, origin, limit, start, entry.keys, styles[Theme::Role::Heading1.value])
+          col = start + line.depth * INDENT
+          if line.heading
+            put(screen, y, origin, limit, col, line.keys, styles[HEADING_ROLES[line.depth].value])
             next
           end
-          put(screen, y, origin, Math.min(start + @keys_width, limit), start, Unicode.truncate(entry.keys, @keys_width),
-            styles[Theme::Role::Name.value])
-          put(screen, y, origin, limit, start + @keys_width + 2, entry.text, styles[Theme::Role::Text.value])
+          put(screen, y, origin, limit, col, line.keys, styles[Theme::Role::Name.value])
+          put(screen, y, origin, limit, start + @column, line.text, styles[Theme::Role::Text.value])
         end
       end
 
@@ -145,9 +209,14 @@ module Docv
         end
       end
 
-      private def section(title : String) : Nil
-        @lines << Line.new("") unless @lines.empty?
-        @lines << Line.new(title, heading: true)
+      # A blank line separates a heading from lines other than headings.
+      private def heading(title : String, depth : Int32) : Nil
+        @entries << Line.new("") unless @entries.empty? || @entries.last.heading
+        @entries << Line.new(title, depth: depth, heading: true)
+      end
+
+      private def bound(keys : Array({Term::Mods, Int32}), text : String) : Nil
+        @entries << Line.new(names(keys), text, 2) unless keys.empty?
       end
 
       private def names(keys : Array({Term::Mods, Int32})) : String

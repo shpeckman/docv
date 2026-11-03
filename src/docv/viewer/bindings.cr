@@ -69,35 +69,40 @@ module Docv
     ]
 
     # :nodoc:
+    # Help text of the page view's actions, by help section, in help order.
     ACTION_HELP = {
-      Action::Top          => "top",
-      Action::Bottom       => "bottom",
-      Action::ToggleWrap   => "wrapped / unwrapped layout",
-      Action::NextLink     => "next link",
-      Action::PrevLink     => "previous link",
-      Action::FollowLink   => "follow the focused link",
-      Action::Back         => "back to the previous page",
-      Action::OpenPage     => "search pages and project documents (in the dock)",
-      Action::Find         => "find in the page (in the dock); typing does too",
-      Action::FindNext     => "next match",
-      Action::FindPrevious => "previous match",
-      Action::ToggleDock   => "open or close the dock: search field and tree of pages",
-      Action::Help         => "this help",
-      Action::Escape       => "clear focus, selection and message",
-      Action::Redraw       => "redraw",
-      Action::Quit         => "quit",
+      "General" => {
+        Action::Help       => "help",
+        Action::OpenPage   => "search all pages",
+        Action::Find       => "find in the page (or just type)",
+        Action::ToggleDock => "show or hide the dock",
+        Action::Redraw     => "redraw",
+        Action::Quit       => "quit",
+      },
+      "Viewer" => {
+        Action::Top          => "top",
+        Action::Bottom       => "bottom",
+        Action::FindNext     => "next match",
+        Action::FindPrevious => "previous match",
+        Action::NextLink     => "next link",
+        Action::PrevLink     => "previous link",
+        Action::FollowLink   => "follow the link",
+        Action::Back         => "back",
+        Action::ToggleWrap   => "wrap or unwrap",
+        Action::Escape       => "clear link focus and selection",
+      },
     }
 
     # :nodoc:
     FIELD_HELP = {
-      FieldAction::Accept     => "back to the page at the match / open the page / fold or unfold the group",
-      FieldAction::Cancel     => "to the tree",
+      FieldAction::Accept     => "go to the match, or open the page",
+      FieldAction::Cancel     => "to the picker",
       FieldAction::DeleteBack => "delete a character",
-      FieldAction::Clear      => "clear the field",
+      FieldAction::Clear      => "clear",
       FieldAction::Next       => "next match or page",
       FieldAction::Previous   => "previous match or page",
-      FieldAction::Expand     => "unfold the page group, or step into it",
-      FieldAction::Collapse   => "fold the page group, or step out to it",
+      FieldAction::Expand     => "unfold the group",
+      FieldAction::Collapse   => "fold the group",
     }
 
     # Dock tree bindings, in the same form as `DEFAULT_BINDINGS`.
@@ -113,13 +118,13 @@ module Docv
 
     # :nodoc:
     TREE_HELP = {
-      TreeAction::Next     => "next page or group",
-      TreeAction::Previous => "previous page or group",
-      TreeAction::Open     => "open the page / fold or unfold the group",
-      TreeAction::Expand   => "unfold the group, or step into it",
-      TreeAction::Collapse => "fold the group, or step out to it",
+      TreeAction::Next     => "next row",
+      TreeAction::Previous => "previous row",
+      TreeAction::Open     => "open the page, or fold or unfold the group",
+      TreeAction::Expand   => "unfold the group",
+      TreeAction::Collapse => "fold the group",
       TreeAction::Field    => "to the search field",
-      TreeAction::Leave    => "back to the page",
+      TreeAction::Leave    => "to the viewer",
     }
 
     # Search field bindings, in the same form as `DEFAULT_BINDINGS`.
