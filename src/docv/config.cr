@@ -23,6 +23,28 @@ module Docv
   # mdoc(7)).
   record Options, unsafe : Bool = false, stdin : IO? = nil, highlight : Bool = false, indent : Int32? = nil
 
+  # :nodoc:
+  # A RAM-backed directory for files that must not reach the disk:
+  # `$XDG_RUNTIME_DIR`, else `/dev/shm`, else the temporary directory, with
+  # `docv` appended.
+  def self.runtime_directory : String
+    base = ENV["XDG_RUNTIME_DIR"]?
+    base = Dir.exists?("/dev/shm") ? "/dev/shm" : Dir.tempdir if base.nil? || base.empty? || !Path[base].absolute?
+    File.join(base, "docv")
+  end
+
+  # Where the viewer keeps the man pages it generates for a Crystal shard:
+  # `Memory` in a RAM-backed directory removed when it quits, `Disk` in the
+  # shard's man directory.
+  enum PageStore
+    Memory
+    Disk
+  end
+
+  # Settings from `[crystal]`: whether the viewer generates the man pages of
+  # the Crystal shard it starts in, and where it keeps them.
+  record CrystalSettings, generate : Bool = true, store : PageStore = PageStore::Memory
+
   # Settings of the viewer's dock from `[picker]`: its width in columns,
   # whether it opens at start, the fewest pages that make a group in its tree
   # (*min_group*), and the number of search threads (0: one less than the
@@ -47,10 +69,11 @@ module Docv
 
     # :nodoc:
     KEYS = {
-      "man"    => Set{"roff-unsafe", "indent"},
-      "viewer" => Set{"start-wrapped", "syntax-highlighting"},
-      "picker" => Set{"dock-width", "dock-open", "min-group", "search-threads"},
-      "colors" => Theme::KEYS.keys.to_set,
+      "man"     => Set{"roff-unsafe", "indent"},
+      "viewer"  => Set{"start-wrapped", "syntax-highlighting"},
+      "picker"  => Set{"dock-width", "dock-open", "min-group", "search-threads"},
+      "crystal" => Set{"generate", "store"},
+      "colors"  => Theme::KEYS.keys.to_set,
     }
 
     # :nodoc:
@@ -77,7 +100,7 @@ module Docv
 
     # The commented default file `load` writes when none exists.
     DEFAULT = String.build do |io|
-      io << MAN << '\n' << VIEWER << '\n' << PICKER << '\n' << COLORS
+      io << MAN << '\n' << VIEWER << '\n' << PICKER << '\n' << CRYSTAL << '\n' << COLORS
       Theme::DEFAULT.each { |role, spec| io << "; " << Theme.key(role) << " = " << spec << '\n' }
     end
 
@@ -138,6 +161,18 @@ module Docv
 
       INI
 
+    private CRYSTAL = <<-INI
+      [crystal]
+      ; In a Crystal shard, generate its man pages when the viewer starts, as
+      ; docv gen-cr does: an overview, name(7cr), and the API, name(3cr).
+      generate = true
+      ; Where the generated pages go. memory: a RAM-backed directory removed
+      ; when the viewer quits (Ctrl-s saves them into the shard's man
+      ; directory); disk: the shard's man directory.
+      store = memory
+
+      INI
+
     # The file this configuration was read from, if any.
     getter path : String?
     # Whether unsafe roff requests run.
@@ -152,10 +187,13 @@ module Docv
     getter colors : Hash(Theme::Role, Theme::Spec)
     # Dock and search settings.
     getter picker : PickerSettings
+    # Man pages of Crystal shards.
+    getter crystal : CrystalSettings
 
     def initialize(@path : String? = nil, @unsafe : Bool = false, @colors = {} of Theme::Role => Theme::Spec,
                    @start_wrapped : Bool = true, @syntax_highlighting : Bool = true,
-                   @picker : PickerSettings = PickerSettings.new, @indent : Int32 = INDENT)
+                   @picker : PickerSettings = PickerSettings.new, @indent : Int32 = INDENT,
+                   @crystal : CrystalSettings = CrystalSettings.new)
     end
 
     # The configuration directory, `$XDG_CONFIG_HOME/docv`.
@@ -198,6 +236,7 @@ module Docv
       man = data["man"]? || {} of String => String
       viewer = data["viewer"]? || {} of String => String
       picker = data["picker"]? || {} of String => String
+      crystal = data["crystal"]? || {} of String => String
       colors = (data["colors"]? || {} of String => String).to_h do |key, text|
         spec = begin
           Theme.parse(text)
@@ -211,8 +250,10 @@ module Docv
         boolean(picker, "dock-open", defaults.dock_open, path),
         integer(picker, "min-group", path) || defaults.min_group,
         integer(picker, "search-threads", path) || defaults.search_threads)
+      shard = CrystalSettings.new(boolean(crystal, "generate", true, path),
+        choice(crystal, "store", PageStore::Memory, path))
       new(path, boolean(man, "roff-unsafe", false, path), colors, boolean(viewer, "start-wrapped", true, path),
-        boolean(viewer, "syntax-highlighting", true, path), settings, integer(man, "indent", path) || INDENT)
+        boolean(viewer, "syntax-highlighting", true, path), settings, integer(man, "indent", path) || INDENT, shard)
     end
 
     private def self.boolean(values : Hash(String, String), key : String, default : Bool, path : String?) : Bool
@@ -231,6 +272,13 @@ module Docv
         raise Error.new("#{path || "config"}: #{key} must be a number from #{range.begin} to #{range.end}, not #{text}")
       end
       value
+    end
+
+    # The value of *key* named after a member of the enum *default* belongs to.
+    private def self.choice(values : Hash(String, String), key : String, default : T, path : String?) : T forall T
+      text = values[key]? || return default
+      T.parse?(text.strip) ||
+        raise Error.new("#{path || "config"}: #{key} must be #{T.names.map(&.downcase).join(" or ")}, not #{text}")
     end
 
     # The default theme with the `[colors]` overrides.

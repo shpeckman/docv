@@ -79,6 +79,25 @@ describe Docv::Manpath do
     end
   end
 
+  it "searches a prepended directory of project pages first" do
+    with_tree do |tree|
+      extra = File.tempname("docv-extra")
+      Dir.mkdir_p(File.join(extra, "man1"))
+      File.write(File.join(extra, "man1", "tool.1"), ".TH TOOL 1\n")
+      begin
+        manpath = Docv::Manpath.new([tree], nil)
+        manpath.find("tool", "1").should eq File.join(tree, "man1", "tool.1")
+        prepended = manpath.prepend(extra)
+        prepended.find("tool", "1").should eq File.join(extra, "man1", "tool.1")
+        prepended.roots.select(&.project).map(&.path).should eq [extra]
+        prepended.find("real", "3").should eq File.join(tree, "man3", "real.3")
+        manpath.find("tool", "1").should eq File.join(tree, "man1", "tool.1")
+      ensure
+        FileUtils.rm_rf(extra)
+      end
+    end
+  end
+
   it "finds the project root and its man page directories" do
     with_project do |project|
       deep = File.join(project, "src", "deep")

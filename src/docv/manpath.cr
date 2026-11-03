@@ -57,11 +57,14 @@ module Docv
     getter project : Project?
 
     @listing = Hash(String, Array(String)).new
+    @paths : Array(String)
+    @locale : String?
 
     # The search path of *roots* in order, each a tree or a flat directory;
     # missing and repeated directories are dropped, and a tree's *locale*
     # subdirectories come first. *project* is returned by `#project`.
-    def initialize(roots : Enumerable(String), locale : String? = Manpath.locale, @project : Project? = nil)
+    def initialize(roots : Enumerable(String), @locale : String? = Manpath.locale, @project : Project? = nil)
+      @paths = roots.to_a
       variants = Manpath.locale_variants(locale)
       own = @project.try(&.pages.map { |dir| Manpath.absolute(dir) }.to_set) || Set(String).new
       seen = Set(String).new
@@ -80,6 +83,14 @@ module Docv
           @roots << Root.new(path, project: project)
         end
       end
+    end
+
+    # This search path with *dir*, a directory of pages of the project (a
+    # tree or flat), searched first.
+    def prepend(dir : String) : Manpath
+      project = @project.try { |found| found.copy_with(pages: [dir] + found.pages) } ||
+                Project.new(File.dirname(Manpath.absolute(dir)), [dir], [] of String)
+      Manpath.new([dir] + @paths, @locale, project)
     end
 
     # The search path of the `docv` command: the project around *dir* (if

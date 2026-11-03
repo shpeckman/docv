@@ -2,6 +2,7 @@
 
 require "../docv"
 require "./corpus"
+require "./crystal_pages"
 require "./term/events"
 require "./term/decoder"
 require "./term/input"

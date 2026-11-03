@@ -180,6 +180,8 @@ no longer produced are removed.
 A file in the way that was not generated from doc comments stops the run.
 .B SOURCE_DATE_EPOCH
 sets the date of the pages.
+The viewer generates the same pages by itself (see
+.BR "CRYSTAL SHARDS" ).
 .TP
 .B text\-worker
 Read page paths from standard input, one per line, and write the text of
@@ -187,6 +189,37 @@ each page to standard output: its size in bytes on a line, then the text.
 The viewer runs these processes to read the text of all pages in parallel
 (see
 .BR DOCK ).
+.SH CRYSTAL SHARDS
+Started inside a Crystal shard (a directory with a
+.I shard.yml
+at or above the current one), the viewer generates the shard's pages as
+.B gen\-cr
+does, in the background (the status row shows
+.BR "generating pages" ),
+and searches them before every other page: the dock lists them with the
+project's pages.
+Where they go is
+.B store
+in the
+.B [crystal]
+section of
+.MR docv\-config 5 :
+with
+.B memory
+(the default) into a RAM-backed directory that is removed when the viewer
+quits, so the shard stays untouched;
+.B Ctrl\-s
+then saves them into the shard's
+.I man
+directory.
+With
+.B disk
+they are written there directly.
+When
+.B crystal docs
+fails, the status row shows the compiler's error.
+.B generate = false
+turns this off.
 .SH SEARCH PATH
 Pages are looked up, and listed by the page search, along this path,
 earlier directories first.
@@ -361,6 +394,12 @@ search.
 .B Ctrl\-b
 Open the dock with the keyboard in its tree, or close it (see
 .BR DOCK ).
+.TP
+.B Ctrl\-s
+Save the pages generated for the current Crystal shard into its
+.I man
+directory (see
+.BR "CRYSTAL SHARDS" ).
 .TP
 .B F1
 Show the help in place of the page, with
@@ -800,6 +839,11 @@ The base of the cache directory,
 .I ~/.cache
 when unset or not absolute.
 .TP
+.B XDG_RUNTIME_DIR
+The base of the directory of generated pages kept in memory;
+.I /dev/shm
+when unset or not absolute, or the temporary directory without it.
+.TP
 .BR LC_ALL ", " LC_MESSAGES ", " LANG
 The locale whose page translations come first.
 .SH FILES
@@ -827,6 +871,13 @@ The page descriptions of the page search.
 A directory whose modification time is unchanged is read from it; in a
 changed directory only files with a new modification time are read again.
 The descriptions of the project's documents are read on every start.
+.TP
+.I $XDG_RUNTIME_DIR/docv/crystal\-pid
+The pages generated for a Crystal shard while
+.B store = memory
+(see
+.BR "CRYSTAL SHARDS" ),
+removed when the viewer quits.
 .TP
 .IR /etc/man_db.conf ", " /etc/manpath.config
 The

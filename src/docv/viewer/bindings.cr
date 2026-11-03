@@ -16,6 +16,7 @@ module Docv
       FindNext
       FindPrevious
       ToggleDock
+      SavePages
       Help
       Escape
       Redraw
@@ -61,6 +62,7 @@ module Docv
       {Term::Mods::None, Term::Key::F1 + 2, Action::FindNext},
       {Term::Mods::Shift, Term::Key::F1 + 2, Action::FindPrevious},
       {Term::Mods::Ctrl, 'b'.ord, Action::ToggleDock},
+      {Term::Mods::Ctrl, 's'.ord, Action::SavePages},
       {Term::Mods::None, Term::Key::F1, Action::Help},
       {Term::Mods::None, Term::Key::ESCAPE, Action::Escape},
       {Term::Mods::Ctrl, 'l'.ord, Action::Redraw},
@@ -76,6 +78,7 @@ module Docv
         Action::OpenPage   => "search all pages",
         Action::Find       => "find in the page (or just type)",
         Action::ToggleDock => "show or hide the dock",
+        Action::SavePages  => "save the generated pages of the shard into its man directory",
         Action::Redraw     => "redraw",
         Action::Quit       => "quit",
       },

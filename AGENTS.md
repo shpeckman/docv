@@ -17,19 +17,22 @@ src/docv/cell.cr            Unicode (widths, cluster interning), Cell (12-byte v
 src/docv/ast.cr             Span (text, style, link), Format, BlockKind, TargetKind, Target, Align, Tabs,
                             Block (level, bars), Document (links, anchors), Table (Cell, Row, kinds)
 src/docv/source.cr          Source (read: gzip + Latin-1 fallback; .so resolution)
-src/docv/manpath.cr         Manpath: roots (trees and flat dirs, project flag), find, man-db system path
+src/docv/manpath.cr         Manpath: roots (trees and flat dirs, project flag), find, prepend, man-db system path
                             (MANPATH, PATH neighbors, MANPATH_MAP, MANDATORY_MANPATH), Project (root, pages,
                             documents) from one walk (MARKERS, SKIP), added directories file (paths),
                             SECTION, split, rank
 src/docv/theme.cr           Theme: Role enum (Heading1-6, markup roles), spec grammar (parse), DEFAULT and
                             MONOCHROME tables, KEYS, styles(palette, depth)
-src/docv/config.cr          Docv.base_directory, Docv.user_directory (XDG base dirs), Options (unsafe,
-                            stdin, highlight, indent), PickerSettings (dock_width, dock_open,
+src/docv/config.cr          Docv.base_directory, Docv.user_directory (XDG base dirs),
+                            Docv.runtime_directory (RAM-backed: XDG_RUNTIME_DIR, /dev/shm, tempdir),
+                            Options (unsafe, stdin, highlight, indent), PageStore (Memory, Disk),
+                            CrystalSettings (generate, store), PickerSettings (dock_width, dock_open,
                             min_group, search_threads), Config
                             ($XDG_CONFIG_HOME/docv/config.ini: [man] roff-unsafe, indent; [viewer]
                             start-wrapped, syntax-highlighting; [picker] dock-width, dock-open,
-                            min-group, search-threads; [colors]; load creates DEFAULT, parse validates
-                            KEYS, BOOLEANS and RANGES; [colors] keys and defaults come from Theme)
+                            min-group, search-threads; [crystal] generate, store; [colors]; load
+                            creates DEFAULT, parse validates KEYS, BOOLEANS, RANGES and enum names
+                            (choice); [colors] keys and defaults come from Theme)
 src/docv/fuzzy.cr           Fuzzy: fzf-style scoring (BONUS table, ASCII classes), DP alignment, positions,
                             match? (subsequence test on raw bytes, ASCII fold table)
 src/docv/index.cr           Index: pages along a Manpath and its project's documents (project first),
@@ -72,9 +75,11 @@ src/docv/layout/table.cr    TableLayout: widths, text blocks, spans, numeric ali
                             by column width), rules and frames, cell links
 src/docv/crystal_pages.cr   entry "docv/crystal_pages": CrystalPages (gen-cr): GENERATOR, MARKER, GENERATED,
                             SUFFIX, sections, OUTPUT, base_name, clean_type, summary, blocks (markd blocks,
-                            text merged, empty HTML dropped), children, plain, code_block, generate
+                            text merged, empty HTML dropped), children, plain, code_block, generate,
+                            pages (DocTool + Pages), write (Generator, counts)
 src/docv/crystal_pages/model.cr  JSON model of crystal docs (Location, TypeRef, Arg, Definition, Constant,
-                            Member, TypeDoc, Project), DocTool (runs crystal docs), Shard (root, require
+                            Member, TypeDoc, Project), DocTool (runs crystal docs; quiet: compiler's
+                            Error: line into the raised Error), Shard (root, require
                             paths from src/<name>.cr, src/<name>/*.cr, other src/*.cr minus the
                             shard.yml targets' mains), Types (in nesting order)
 src/docv/crystal_pages/roff.cr   Roff (escape, quote, bold, line, lines), Inline (markd inlines to roff:
@@ -82,11 +87,15 @@ src/docv/crystal_pages/roff.cr   Roff (escape, quote, bold, line, lines), Inline
 src/docv/crystal_pages/pages.cr  Literal (constant values), Page (render with date), Pages (overview and API
                             page: a .SH per type, .SS per MEMBER_SECTIONS entry), Generator (gzipped
                             pages, unchanged-aware, remove stale)
+src/docv/crystal_pages/session.cr  Session (the viewer's generated pages of one shard: directory in
+                            Docv.runtime_directory (crystal-<pid>) or the shard's man/ by PageStore;
+                            generate, save into man/, close removes memory pages)
 src/docv/corpus.cr          entry "docv/corpus": Corpus (text of all pages at WIDTH: extract, cache text.bin
                             mapped with mmap, records by path and mtime; build parses missing pages in
                             worker processes (Corpus.worker, serve, PAGE_TIMEOUT) or in this process;
                             count on isolated searcher threads fed through a channel, Search, CHUNK)
-src/docv/viewer.cr          entry "docv/viewer": terminal layer + viewer (requires docv/corpus)
+src/docv/viewer.cr          entry "docv/viewer": terminal layer + viewer (requires docv/corpus,
+                            docv/crystal_pages)
 src/docv/term/events.cr     Key numbers, Mods, KeyAction, raw event records (ColorsReport), Event alias
 src/docv/term/decoder.cr    Decoder: bytes into raw events (kitty CSI u, legacy, SGR mouse, notifications,
                             OSC 21 reports; unterminated ESC ] is Alt-])
@@ -130,21 +139,22 @@ src/docv/viewer/viewer.cr   Viewer: Focus (page, tree, field), Hover and POINTER
                             cache, anchors, actions, dock (refit, tree, field, finder), corpus fiber and
                             hit searches (hit_generation), index fiber, links (open_link by TargetKind,
                             anchor_block, history), text selection (OSC 52 copy), mouse, drawing (OSC 8
-                            for URL links), run loop
+                            for URL links), generated Crystal pages (generate_pages, pages_generated,
+                            reset_index, save_pages), run loop
 src/cli.cr                  docv command (path-add, path-rm, path-list, gen-cr, text-worker, viewer, plain
-                            output; sets Corpus.worker)
+                            output; sets Corpus.worker; crystal_session for the viewer, closed at exit)
 man/man1/docv.1             manual page of the command (man(7)): keys, dock, mouse, search path, links,
                             Markdown, environment, files
 man/man5/docv-config.5      manual page of config.ini: [man], [viewer], [picker], [colors] roles and defaults
 spec/                       specs per component (spec_helper: parse, render, blocks; markdown_spec: md;
                             manual_spec: hand-written pages strictly, generated API pages parse cleanly;
-                            crystal_pages_spec: roff of Markdown, pages from a JSON fixture, generator;
+                            crystal_pages_spec: roff of Markdown, pages from a JSON fixture, generator, Session (runs crystal docs on a temp shard);
                             corpus_spec: pages in a temp directory, in-process parsing, serve)
 ```
 
 ## Flow
 
-The CLI handles `path-add`/`path-rm`/`path-list` (they only touch `Manpath.paths_file`) and `gen-cr` before anything else. `gen-cr` finds the shard root (`Shard.root`), runs `crystal docs --format json` there (`DocTool`), and `Pages` renders two pages named after the shard: the overview `name.7cr` from the project body (with a list of the types) and the API page `name.3cr` with one `.SH` section per type from `Types` (declaration with its `require`, description, then `.SS` subsections for relations, constants and `MEMBER_SECTIONS`). `:nodoc:` types never reach the JSON. `Generator` gzips them (`COMPRESSION`, header time fixed at the epoch). Markdown goes through `Markdown.tree` into `Renderer`/`Inline`, which write roff. `Generator` writes into the output directory, keeping unchanged pages (compared decompressed) with their date, removing stale generated pages, gzipped or not, and refusing files without `GENERATED`. Otherwise it reads `Config` first; `Config#options` becomes the `Options` the engine gets (`.rd` reads `STDIN` only for the page named on the command line). It builds one `Manpath.default(Dir.current)` (project directories, added directories, system path, plus the `Manpath::Project` with its Markdown documents) and hands it to the lookup, the viewer and the `Index`. `Docv.load` reads the file with `Source.read` and picks the parser by name: `Markdown.file?` goes to `Markdown.parse`, everything else to the roff `Engine`.
+The CLI handles `path-add`/`path-rm`/`path-list` (they only touch `Manpath.paths_file`) and `gen-cr` before anything else. `gen-cr` finds the shard root (`Shard.root`), runs `crystal docs --format json` there (`DocTool`), and `Pages` renders two pages named after the shard: the overview `name.7cr` from the project body (with a list of the types) and the API page `name.3cr` with one `.SH` section per type from `Types` (declaration with its `require`, description, then `.SS` subsections for relations, constants and `MEMBER_SECTIONS`). `:nodoc:` types never reach the JSON. `Generator` gzips them (`COMPRESSION`, header time fixed at the epoch). Markdown goes through `Markdown.tree` into `Renderer`/`Inline`, which write roff. `Generator` writes into the output directory, keeping unchanged pages (compared decompressed) with their date, removing stale generated pages, gzipped or not, and refusing files without `GENERATED`. Otherwise it reads `Config` first; `Config#options` becomes the `Options` the engine gets (`.rd` reads `STDIN` only for the page named on the command line). It builds one `Manpath.default(Dir.current)` (project directories, added directories, system path, plus the `Manpath::Project` with its Markdown documents) and hands it to the lookup, the viewer and the `Index`. With `[crystal] generate` and a `shard.yml` at or above the current directory, the CLI gives the viewer a `CrystalPages::Session` (and closes it at exit, removing memory-stored pages): `Viewer#run` spawns `generate_pages`, which runs `Session#generate` (`CrystalPages.pages` with a quiet `DocTool`, then `CrystalPages.write` into `Session#directory`: a `crystal-<pid>` directory in `Docv.runtime_directory` for `PageStore::Memory`, the shard's `man/` for `Disk`) and sends `:pages`; `pages_generated` puts that directory first with `Manpath#prepend` and `reset_index` drops the index, outline, dock trees and hits (a corpus still being read is marked `@corpus_stale` and dropped when its `:corpus` arrives; `describe` stops for a replaced index), or shows the error. `Action::SavePages` (`Ctrl-s`) runs `Session#save` into the shard's `man/`. `Docv.load` reads the file with `Source.read` and picks the parser by name: `Markdown.file?` goes to `Markdown.parse`, everything else to the roff `Engine`.
 
 roff: `Engine#run` pushes the file onto the input stack. Each line is a control line (request, user macro, or package macro, looked up in that order; `.TS` goes to `Tbl` first) or a text line (interpolated, then formatted by `Inline` into the `Builder`). User macros take precedence over package macros, and package macros over requests. The package (`Man` or `Mdoc`) is chosen by the first macro either one knows. `.SH`/`.Sh` are headings of level 1, `.SS`/`.Ss` of level 2.
 
@@ -177,7 +187,7 @@ The viewer can be driven headless in tmux: `tmux -L test new-session -d -x 90 -y
 - Every file starts with a comment holding its path (`# src/docv/...`), then a blank line: a comment directly above the first declaration becomes that type's doc (for `module Docv`, its description in the API pages).
 - Comments sparingly and short. Doc comments only for the library API (what a user of the shard calls), one sentence to a few lines, no implementation details; everything else is `:nodoc:` (the first line of its doc comment; a `:nodoc:` namespace hides its contents). Inline comments only for a non-obvious why.
 - The user-facing API stays ergonomic (`Docv.open`, `Docv.load`, `Layout#lines`, `Viewer#run`, `CrystalPages.generate`).
-- Avoid shotgun surgery: a new request goes in `requests.cr` (plus `NO_OP`/`BREAKING` if relevant; requests that run commands or touch files go in `unsafe.cr` and `UNSAFE`); a new config key goes in `Config::KEYS`, `Config::DEFAULT` (its section text), `Config.parse` and `Options` (parsing) or a `Config` getter used by the CLI (viewer settings such as `start_wrapped?`); a new man macro in `Man::MACROS` and `Man#call`; a new mdoc macro in `MdocData` tables and `Mdoc#inline`; a new Markdown block node in `Converter#block`, an inline node in `Converter#inline` (an emphasis-like one only in `Markdown::ATTRIBUTES`); a new Markdown file extension in `Markdown::EXTENSIONS`; a new Markdown node in generated man pages in `Renderer#render` (block) or `Inline#inline`; a new page section in `Pages#type_page` (member lists in `Pages::MEMBER_SECTIONS`, relations in `TypeDoc#relations`); marked text in a new `Markup` value, its role in `MARKUP_ROLES`; a new link kind in `TargetKind`, `Target#label`, `Converter#target_id` and `Viewer#open_link`; a new key binding in `DEFAULT_BINDINGS` (page view), `FIELD_BINDINGS` (search field) or `TREE_BINDINGS` (dock tree), a new action in `Action`/`FieldAction`/`TreeAction`, its text in `ACTION_HELP` (under its help section, General or Viewer)/`FIELD_HELP`/`TREE_HELP` and its `case` in `Viewer#perform`/`Viewer#field_key`/`Viewer#tree_key`; a new kind of field search in `Viewer#field_changed`; a new integer config key also in `Config::RANGES`, a picker setting in `PickerSettings`; a new name separator for page groups in `Outline::SEPARATORS`; a new pointer shape in `Viewer::Hover`, `POINTER_SHAPES` and `Viewer#hover_kind`; a new project marker or skipped folder in `Manpath::MARKERS`/`SKIP`; a new `docv` subcommand in the `case` at the top of `CLI.run` and `USAGE`; a translated NAME heading in `Index::NAMES`; a new color role in `Theme::Role`, `Theme::DEFAULT` and `Theme::MONOCHROME` (config key and default file follow) plus its use site; a change to page description extraction bumps `Index::HEADER`; a change to the text `Corpus.extract` produces or to the cache layout bumps `Corpus::HEADER`.
+- Avoid shotgun surgery: a new request goes in `requests.cr` (plus `NO_OP`/`BREAKING` if relevant; requests that run commands or touch files go in `unsafe.cr` and `UNSAFE`); a new config key goes in `Config::KEYS`, `Config::DEFAULT` (its section text), `Config.parse` and `Options` (parsing) or a `Config` getter used by the CLI (viewer settings such as `start_wrapped?`; a key naming an enum member through `Config.choice`); a new man macro in `Man::MACROS` and `Man#call`; a new mdoc macro in `MdocData` tables and `Mdoc#inline`; a new Markdown block node in `Converter#block`, an inline node in `Converter#inline` (an emphasis-like one only in `Markdown::ATTRIBUTES`); a new Markdown file extension in `Markdown::EXTENSIONS`; a new Markdown node in generated man pages in `Renderer#render` (block) or `Inline#inline`; a new page section in `Pages#type_page` (member lists in `Pages::MEMBER_SECTIONS`, relations in `TypeDoc#relations`); marked text in a new `Markup` value, its role in `MARKUP_ROLES`; a new link kind in `TargetKind`, `Target#label`, `Converter#target_id` and `Viewer#open_link`; a new key binding in `DEFAULT_BINDINGS` (page view), `FIELD_BINDINGS` (search field) or `TREE_BINDINGS` (dock tree), a new action in `Action`/`FieldAction`/`TreeAction`, its text in `ACTION_HELP` (under its help section, General or Viewer)/`FIELD_HELP`/`TREE_HELP` and its `case` in `Viewer#perform`/`Viewer#field_key`/`Viewer#tree_key`; a new kind of field search in `Viewer#field_changed`; a new integer config key also in `Config::RANGES`, a picker setting in `PickerSettings`; a new name separator for page groups in `Outline::SEPARATORS`; a new pointer shape in `Viewer::Hover`, `POINTER_SHAPES` and `Viewer#hover_kind`; a new project marker or skipped folder in `Manpath::MARKERS`/`SKIP`; a new `docv` subcommand in the `case` at the top of `CLI.run` and `USAGE`; a translated NAME heading in `Index::NAMES`; a new color role in `Theme::Role`, `Theme::DEFAULT` and `Theme::MONOCHROME` (config key and default file follow) plus its use site; a change to page description extraction bumps `Index::HEADER`; a change to the text `Corpus.extract` produces or to the cache layout bumps `Corpus::HEADER`.
 - Do not change the version in `shard.yml`.
 - Keep README.md short (what docv is, install, a usage summary, a library quick start); details belong in the man pages: `man/man1/docv.1` (command, keys, dock, mouse, search path), `man/man5/docv-config.5` (config), and the generated API pages (doc comments and README). Keep those and this file in sync with the code. `spec/manual_spec.cr` parses the man pages and fails on unknown macros; `groff -man -Tutf8 -ww -z` should stay silent on them too.
 - Concurrency: the viewer's state belongs to the default execution context (one thread); fibers there (index, corpus, hit searches) touch it between blocking points only. Work on other threads (the corpus searchers) reads only the mapped cache and writes disjoint array elements, and reports back through `@events` or by finishing a `WaitGroup`. Global tables written while parsing (`Styles`, `Unicode` clusters, `Colors`) are not thread-safe, so pages are parsed on one thread or in worker processes (`Corpus#build`); threads would not parse faster anyway (the GC allocation lock), and locking those tables slowed parsing by 40%.

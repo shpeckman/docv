@@ -173,6 +173,13 @@ module Docv
     @index : Index? = nil
     @index_progress : {Int32, Int32}? = nil
     @corpus : Corpus? = nil
+    # Set while a corpus of a replaced index is still read; it is dropped once read.
+    @corpus_stale = false
+    # The shard whose pages are generated, and the result: the new pages'
+    # references, or why it failed.
+    @crystal : CrystalPages::Session?
+    @generating = false
+    @generated : Array(String) | String | Nil = nil
     @search_threads : Int32
     @min_group : Int32
     @text_progress : {Int32, Int32}? = nil
@@ -207,10 +214,13 @@ module Docv
     # Creates a viewer showing *document*, loaded from *path* if any. *options*
     # applies to pages opened from the viewer, ignoring its `stdin`; *theme*
     # and *depth* set the colors, *settings* the dock (`Config#picker`).
+    # With *crystal*, `run` generates that shard's pages in the background
+    # and searches them first.
     def initialize(document : Document = Document.new, path : String? = nil, @wrap : Bool = true,
                    @manpath : Manpath = Manpath.default, @tty : Term::Tty = Term::Tty.new,
                    options : Options = Options.new, @theme : Theme = Theme.new,
-                   @depth : ColorDepth = Term::Tty.color_depth, settings : PickerSettings = PickerSettings.new)
+                   @depth : ColorDepth = Term::Tty.color_depth, settings : PickerSettings = PickerSettings.new,
+                   @crystal : CrystalPages::Session? = nil)
       @options = options.copy_with(stdin: nil)
       @page = Page.new(document, path)
       @screen = Screen.new(@frame.rows, @frame.cols)
@@ -231,6 +241,10 @@ module Docv
       begin
         spawn read_input
         Signal::WINCH.trap { @events.send(:resize) }
+        if crystal = @crystal
+          @generating = true
+          spawn generate_pages(crystal)
+        end
         resize
         draw
         while @running
@@ -254,7 +268,9 @@ module Docv
           when :index
             index_updated
           when :corpus
-            search_hits
+            corpus_read
+          when :pages
+            pages_generated
           when :eof
             @running = false
           end
@@ -437,6 +453,7 @@ module Docv
       in .find_next?     then step(1) if @dock.open?
       in .find_previous? then step(-1) if @dock.open?
       in .toggle_dock?   then toggle_dock
+      in .save_pages?    then save_pages
       in .help?          then @help = Help.new(@bindings, @field_bindings, @tree_bindings)
       in .escape?
         @link = nil
@@ -760,6 +777,15 @@ module Docv
       end
     end
 
+    # Drops a corpus read for a replaced index, then searches.
+    private def corpus_read : Nil
+      if @corpus_stale
+        @corpus_stale = false
+        @corpus = nil
+      end
+      search_hits
+    end
+
     # Builds *corpus* with throttled progress; `:corpus` then starts the search.
     private def read_pages(corpus : Corpus, sources : Array(Corpus::Source)) : Nil
       last = Time.instant
@@ -801,7 +827,7 @@ module Docv
     private def describe(index : Index) : Nil
       last = Time.instant
       index.describe do |done, total|
-        break if @closed
+        break if @closed || !@index.same?(index)
         @index_progress = {done, total}
         Fiber.yield if done % INDEX_BATCH == 0
         now = Time.instant
@@ -810,6 +836,61 @@ module Docv
           @events.send(:index)
         end
       end
+    end
+
+    # Lists the pages again along a changed search path, keeping the dock's
+    # field.
+    private def reset_index : Nil
+      @index.try &.save
+      @index = nil
+      @index_progress = nil
+      @outline = nil
+      @dock.pages = nil
+      @dock.group = nil
+      @group_key = nil
+      clear_hits
+      if corpus = @corpus
+        corpus.ready? ? (@corpus = nil) : (@corpus_stale = true)
+      end
+      return unless @dock.open?
+      all_pages.query = @dock.query if @dock.manual?
+      reveal_current
+      search_hits
+    end
+
+    # --- generated Crystal pages ---------------------------------------------
+
+    # Generates the shard's pages; `:pages` then searches them first.
+    private def generate_pages(crystal : CrystalPages::Session) : Nil
+      @generated = begin
+        crystal.generate
+      rescue ex
+        ex.message || ex.class.name
+      end
+      @events.send(:pages)
+    end
+
+    private def pages_generated : Nil
+      @generating = false
+      crystal = @crystal || return
+      result = @generated || return
+      if result.is_a?(String)
+        @message = "#{crystal.name} pages: #{result}"
+        return
+      end
+      @manpath = @manpath.prepend(crystal.directory)
+      reset_index
+      saving = @bindings.keys(Action::SavePages).first?.try { |mods, key| Help.key_name(mods, key) }
+      where = crystal.store.memory? ? " in memory#{saving.try { |name| " (#{name} saves them)" }}" : ""
+      @message = "Generated #{result.join(", ")}#{where}"
+    end
+
+    private def save_pages : Nil
+      crystal = @crystal
+      return @message = "No generated pages to save" unless crystal && crystal.generated?
+      @message = "Saved #{crystal.save}"
+    rescue ex : CrystalPages::Error | File::Error | IO::Error
+      @message = "Cannot save the pages: #{ex.message}"
     end
 
     private def index_updated : Nil
@@ -1426,6 +1507,7 @@ module Docv
       elsif (finder = @finder) && !finder.query.blank?
         parts << (@found.empty? ? "no matches" : "match #{finder.selected + 1}/#{@found.size}")
       end
+      parts << "generating pages" if @generating
       if @dock.open? && (progress = @index_progress) && progress[0] < progress[1]
         parts << "indexing #{progress[0] * 100 // progress[1]}%"
       end

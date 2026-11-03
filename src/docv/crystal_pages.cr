@@ -7,6 +7,7 @@ require "../docv"
 require "./crystal_pages/model"
 require "./crystal_pages/roff"
 require "./crystal_pages/pages"
+require "./crystal_pages/session"
 
 module Docv
   # Generates two gzipped man pages for a Crystal shard (`docv gen-cr`): a
@@ -130,12 +131,22 @@ module Docv
     # returns a one-line report. Raises `Error` when `crystal docs` fails or
     # *output* holds a file of the same name that was not generated.
     def self.generate(root : String, output : String) : String
-      project = DocTool.load(root)
-      shard = Shard.new(root, project.repository_name)
       shown = Path[output].relative_to?(root).try(&.to_s).try { |path| path.starts_with?("..") ? nil : path } || output
-      pages = Pages.new(shard, Types.new(project), shown).all
+      "#{shown}: #{write(pages(root, shown), output)}"
+    end
+
+    # :nodoc:
+    # The pages of the shard in *root*, their path comments under *shown*.
+    def self.pages(root : String, shown : String, quiet : Bool = false) : Array(Page)
+      project = DocTool.load(root, quiet)
+      Pages.new(Shard.new(root, project.repository_name), Types.new(project), shown).all
+    end
+
+    # :nodoc:
+    # Writes *pages* into *output*; reports the counts.
+    def self.write(pages : Array(Page), output : String) : String
       written, unchanged, removed = Generator.new(output, Generator.today).run(pages)
-      "#{shown}: #{written} written, #{unchanged} unchanged, #{removed} removed"
+      "#{written} written, #{unchanged} unchanged, #{removed} removed"
     end
   end
 end

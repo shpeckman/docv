@@ -56,6 +56,14 @@ describe Docv::Config do
     expect_raises(Docv::Config::Error, /unknown key dock-width in \[viewer\]/) { Docv::Config.parse("[viewer]\ndock-width = 40\n") }
   end
 
+  it "reads the Crystal page settings" do
+    Docv::Config.parse("").crystal.should eq Docv::CrystalSettings.new
+    Docv::Config.parse(Docv::Config::DEFAULT).crystal.should eq Docv::CrystalSettings.new(true, Docv::PageStore::Memory)
+    config = Docv::Config.parse("[crystal]\ngenerate = no\nstore = Disk\n")
+    config.crystal.should eq Docv::CrystalSettings.new(false, Docv::PageStore::Disk)
+    expect_raises(Docv::Config::Error, /store must be memory or disk, not tape/) { Docv::Config.parse("[crystal]\nstore = tape\n") }
+  end
+
   it "reads the man page settings" do
     Docv::Config.parse("").indent.should eq 2
     Docv::Config.parse(Docv::Config::DEFAULT).indent.should eq 2

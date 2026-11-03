@@ -150,6 +150,36 @@ it, for the hit counts of the tree while finding in the page (0 to 1024).
 is one less than the number of processors.
 Default
 .BR 0 .
+.SH "THE [crystal] SECTION"
+The man pages the viewer generates when it starts inside a Crystal shard
+(see
+.B CRYSTAL SHARDS
+in
+.MR docv 1 ).
+.TP
+.B generate
+Generate the shard's overview
+.RI ( name (7cr))
+and API page
+.RI ( name (3cr))
+in the background, as
+.B docv gen\-cr
+does, and search them first.
+Default
+.BR true .
+.TP
+.B store
+Where the generated pages go:
+.B memory
+keeps them in a RAM-backed directory removed when the viewer quits, and
+.B Ctrl\-s
+saves them into the shard's
+.I man
+directory;
+.B disk
+writes them there directly.
+Default
+.BR memory .
 .SH "THE [colors] SECTION"
 Every element of the viewer is drawn in a role, and each key of this
 section restyles one role.
@@ -440,6 +470,9 @@ syntax\-highlighting = false
 [picker]
 dock\-width = 40
 min\-group = 2
+
+[crystal]
+store = disk
 
 [colors]
 heading1 = bold #ff8800

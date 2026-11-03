@@ -19,8 +19,10 @@ module Docv::CLI
                         (also [viewer] start-wrapped = false in config.ini)
       -h, --help        show this help
 
-    Without a page, the viewer opens on an empty page; p opens the dock with
-    the pages and documents of the current folder's project.
+    Without a page, the viewer opens on an empty page; Ctrl-b opens the dock
+    with the pages and documents of the current folder's project. Inside a
+    Crystal shard the viewer generates its pages as gen-cr does ([crystal]
+    in config.ini), in memory unless store = disk; Ctrl-s saves them.
 
     Pages are looked up in the man page directories of the project around
     the current directory, then in the added directories, then along the
@@ -77,15 +79,18 @@ module Docv::CLI
     wrap = config.start_wrapped? && !unwrapped
     manpath = Manpath.default(Dir.current)
     if names.empty?
+      crystal = crystal_session(config)
       viewer = Viewer.new(wrap: wrap, manpath: manpath, tty: tty, options: config.options, theme: config.theme,
-        settings: config.picker)
+        settings: config.picker, crystal: crystal)
       viewer.run
       return 0
     end
     path = resolve(names, manpath) || return 1
     document = Docv.load(path, config.options(STDIN))
     if tty.tty?
-      Viewer.new(document, path, wrap, manpath, tty, config.options, config.theme, settings: config.picker).run
+      crystal = crystal_session(config)
+      Viewer.new(document, path, wrap, manpath, tty, config.options, config.theme, settings: config.picker,
+        crystal: crystal).run
     else
       width = ENV["MANWIDTH"]?.try(&.to_i?) || 80
       Layout.new(document).lines(width, wrap).each { |line| STDOUT.puts line.text.rstrip }
@@ -94,6 +99,16 @@ module Docv::CLI
   rescue ex : IO::Error | Compress::Gzip::Error
     STDERR.puts "docv: #{ex.message}"
     1
+  ensure
+    crystal.try &.close
+  end
+
+  # The pages the viewer generates for the Crystal shard around the current
+  # directory (`[crystal]` in the configuration); `nil` outside a shard.
+  private def self.crystal_session(config : Config) : CrystalPages::Session?
+    return nil unless config.crystal.generate
+    root = CrystalPages::Shard.root(Dir.current) || return nil
+    CrystalPages::Session.new(root, config.crystal.store)
   end
 
   private def self.usage_error : Int32

@@ -176,11 +176,21 @@ module Docv
     module DocTool
       COMMAND = "crystal"
 
-      # Compiler diagnostics go to standard error.
-      def self.load(root : String) : Project
+      # Compiler diagnostics go to standard error, or with *quiet* into the
+      # error's message (its first `Error:` line).
+      def self.load(root : String, quiet : Bool = false) : Project
         output = IO::Memory.new
-        status = Process.run(COMMAND, {"docs", "--format", "json"}, chdir: root, output: output, error: Process::Redirect::Inherit)
-        raise Error.new("`#{COMMAND} docs` failed with exit code #{status.exit_code}") unless status.success?
+        error = quiet ? IO::Memory.new : Process::Redirect::Inherit
+        status = Process.run(COMMAND, {"docs", "--format", "json"}, chdir: root, output: output, error: error)
+        unless status.success?
+          message = "`#{COMMAND} docs` failed with exit code #{status.exit_code}"
+          if error.is_a?(IO::Memory)
+            lines = error.to_s.lines.map(&.strip).reject(&.empty?)
+            detail = lines.find(&.starts_with?("Error:")) || lines.last?
+            message = "`#{COMMAND} docs` failed: #{detail.lchop("Error:").strip}" if detail
+          end
+          raise Error.new(message)
+        end
         Project.from_json(output.rewind)
       rescue ex : File::Error
         raise Error.new("cannot run `#{COMMAND}`: #{ex.message}")

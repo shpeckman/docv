@@ -38,7 +38,7 @@ dependencies:
     docv path-add dir...          # add man page directories (path-rm, path-list)
     docv gen-cr [-o dir] [shard]  # man pages for a Crystal shard
 
-In the viewer, `F1` lists the keys, `Ctrl-b` opens the dock, typing finds in the page and typing `/` searches every page. When standard output is not a terminal, the page is printed as text.
+In the viewer, `F1` lists the keys, `Ctrl-b` opens the dock, typing finds in the page and typing `/` searches every page. Inside a Crystal shard the viewer generates the shard's man pages in memory (`Ctrl-s` saves them into `man/`). When standard output is not a terminal, the page is printed as text.
 
 The manual pages document the rest: docv(1) for the command, keys, mouse and search path, docv-config(5) for `config.ini`. Inside this repository `docv docv` opens docv(1).
 

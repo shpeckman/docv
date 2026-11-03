@@ -109,6 +109,38 @@ describe Docv::CrystalPages do
     end
   end
 
+  it "generates pages into memory, saves them into the shard and removes them on close" do
+    with_shard do |root|
+      memory = File.tempname("docv-memory")
+      session = Docv::CrystalPages::Session.new(root, Docv::PageStore::Memory, memory)
+      session.directory.should start_with memory
+      expect_raises(Docv::CrystalPages::Error, /no pages generated/) { session.save }
+      session.generate.should eq ["demo(7cr)", "demo(3cr)"]
+      File.file?(File.join(session.directory, "man3", "demo.3cr.gz")).should be_true
+      Dir.exists?(File.join(root, "man")).should be_false
+      session.save.should eq "man: 2 written, 0 unchanged, 0 removed"
+      File.file?(File.join(root, "man", "man7", "demo.7cr.gz")).should be_true
+      session.close
+      Dir.exists?(session.directory).should be_false
+      File.file?(File.join(root, "man", "man7", "demo.7cr.gz")).should be_true
+    ensure
+      FileUtils.rm_rf(memory) if memory
+    end
+  end
+
+  it "generates pages on disk, and reports the compiler's error" do
+    with_shard do |root|
+      session = Docv::CrystalPages::Session.new(root, Docv::PageStore::Disk)
+      session.directory.should eq File.join(root, "man")
+      session.generate
+      File.file?(File.join(root, "man", "man3", "demo.3cr.gz")).should be_true
+      session.close
+      File.file?(File.join(root, "man", "man3", "demo.3cr.gz")).should be_true
+      File.write(File.join(root, "src", "demo.cr"), "class Demo::Thing\n  def broken(\nend\n")
+      expect_raises(Docv::CrystalPages::Error, /crystal docs` failed: /) { session.generate }
+    end
+  end
+
   it "finds the shard root" do
     with_shard do |root|
       Docv::CrystalPages::Shard.root(File.join(root, "src")).should eq root
