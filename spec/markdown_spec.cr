@@ -24,6 +24,10 @@ describe Docv::Markdown do
     md("one two\nthree\n\nnext  \nline\n", 60).should eq ["one two three", "", "next", "line"]
   end
 
+  it "never breaks a code span" do
+    md("aaaa `one two three` b\n", 14).should eq ["aaaa", "one two three", "b"]
+  end
+
   it "keeps heading levels, the title and GitHub anchors" do
     doc = Docv::Markdown.parse("# Top Title\n\ntext\n\n## Sub, part!\n\n### Sub, part!\n\n###### Six\n")
     doc.format.markdown?.should be_true

@@ -68,6 +68,11 @@ describe Docv::Macros::Mdoc do
     render(MDOC, 70).should contain("           code  here")
   end
 
+  it "never fills a one-line literal display" do
+    lines = render(".Dd x\n.Dt Y 1\n.Os\n.Sh A\n.Dl one-line literal display that is longer than the forty columns\n", 40)
+    lines.should contain("           one-line literal display that is longer than the forty columns")
+  end
+
   it "expands standard sentences" do
     render(MDOC, 70).join(' ').should contain("The tool utility exits 0 on success, and >0 if an error occurs.")
   end

@@ -73,6 +73,17 @@ module Docv
       Theme::Role::Heading4, Theme::Role::Heading5, Theme::Role::Heading6,
     ]
 
+    # Characters a double click selects along with letters and digits, so
+    # it takes `--color` and `snake_case` whole.
+    WORD_CHARS = Set{'_', '-'}
+
+    # What a double click selects a run of: a word or punctuation.
+    enum CharClass
+      Blank
+      Word
+      Punctuation
+    end
+
     # Groups of the page search: the project's pages and documents first.
     PROJECT_GROUP = 0
     OTHER_GROUP   = 1
@@ -749,30 +760,110 @@ module Docv
       end
     end
 
-    # The selected columns of line *index*: start and past-the-end; `nil`
-    # when none.
+    # The selected columns of line *index*: start and past-the-end, within
+    # the line's text (its indentation and trailing blanks are not
+    # selected); `nil` when none.
     private def selected_cols(index : Int32, range : {Int32, Int32, Int32, Int32}) : {Int32, Int32}?
       first_line, first_col, last_line, last_col = range
       return nil unless first_line <= index <= last_line
       cells = @lines[index].cells
+      text_start = cells.index { |cell| !blank?(cell) } || return nil
+      text_end = (cells.rindex { |cell| !blank?(cell) } || text_start) + 1
       start = index == first_line ? first_col : 0
       start -= 1 if start > 0 && cells[start]?.try(&.continuation?)
+      start = Math.max(start, text_start)
       finish = index == last_line ? Math.min(last_col + 1, cells.size) : cells.size
+      finish += 1 if finish < cells.size && cells[finish].continuation?
+      finish = Math.min(finish, text_end)
       start < finish ? {start, finish} : nil
     end
 
-    # The selected text, lines joined by newlines without trailing blanks.
+    # The selected text, lines joined by newlines. Lines lose the
+    # indentation they share, so text is copied flush left while code keeps
+    # its relative indentation; lines between selected ones that have no
+    # text stay as empty lines.
     private def selected_text : String?
       range = selection_range || return nil
       first_line, _, last_line, _ = range
+      selected = (first_line..last_line).map { |index| selected_cols(index, range) }
+      base = selected.compact_map(&.try(&.[0])).min? || return nil
       String.build do |io|
-        (first_line..last_line).each do |index|
-          io << '\n' if index > first_line
-          start, finish = selected_cols(index, range) || next
-          cells = @lines[index].cells
-          io << String.build { |line| (start...finish).each { |col| cells[col].text(line) unless cells[col].continuation? } }.rstrip
+        selected.each_with_index do |cols, offset|
+          io << '\n' if offset > 0
+          start, finish = cols || next
+          start = base if offset > 0
+          cells = @lines[first_line + offset].cells
+          (start...finish).each { |col| cells[col].text(io) unless cells[col].continuation? }
         end
       end
+    end
+
+    # True for a cell without a character: padding and spaces between words.
+    private def blank?(cell : Cell) : Bool
+      cell.ch == ' ' && cell.cluster == 0 && !cell.continuation?
+    end
+
+    # Selects what a double click (*count* 2: the word or the run of
+    # punctuation) or a triple click (*count* 3: the paragraph) at screen
+    # cell (*row*, *col*) of the page body points at, and copies it.
+    private def select_at(row : Int32, col : Int32, count : Int32) : Nil
+      return unless 0 <= row - page_top < page_rows
+      index, page_col = page_point(row, col) || return
+      @selection = count == 2 ? word_at(index, page_col) : paragraph_at(index)
+      copy_selection
+    end
+
+    # The run of cells of one `CharClass` around column *col* of line
+    # *index*, as a selection; `nil` on a blank.
+    private def word_at(index : Int32, col : Int32) : {Int32, Int32, Int32, Int32}?
+      cells = @lines[index].cells
+      return nil unless col < cells.size
+      kind = char_class(cells, col)
+      return nil if kind.blank?
+      start = col
+      while start > 0 && char_class(cells, start - 1) == kind
+        start -= 1
+      end
+      finish = col
+      while finish + 1 < cells.size && char_class(cells, finish + 1) == kind
+        finish += 1
+      end
+      {index, start, index, finish}
+    end
+
+    # The class of the character at *col*; a continuation cell takes the
+    # class of the wide character it continues.
+    private def char_class(cells : Array(Cell), col : Int32) : CharClass
+      while col > 0 && cells[col].continuation?
+        col -= 1
+      end
+      cell = cells[col]
+      return CharClass::Blank if blank?(cell)
+      cell.ch.alphanumeric? || WORD_CHARS.includes?(cell.ch) ? CharClass::Word : CharClass::Punctuation
+    end
+
+    # The lines of the paragraph around line *index*: the lines with text
+    # next to it in blocks of the same kind; a heading stands alone.
+    private def paragraph_at(index : Int32) : {Int32, Int32, Int32, Int32}?
+      kind = paragraph_kind(index) || return nil
+      first = index
+      last = index
+      unless kind.heading?
+        while first > 0 && paragraph_kind(first - 1) == kind
+          first -= 1
+        end
+        while last + 1 < @lines.size && paragraph_kind(last + 1) == kind
+          last += 1
+        end
+      end
+      {first, 0, last, Math.max(@lines[last].cells.size - 1, 0)}
+    end
+
+    # The kind of the block of line *index*; `nil` for a line without text.
+    private def paragraph_kind(index : Int32) : BlockKind?
+      line = @lines[index]
+      return nil if line.block < 0 || line.cells.all? { |cell| blank?(cell) }
+      @page.document.blocks[line.block].kind
     end
 
     # Puts the selected text on the clipboard.
@@ -902,7 +993,11 @@ module Docv
     end
 
     private def click(event : Term::Click) : Nil
-      return unless event.button.left? && event.count == 1
+      return unless event.button.left?
+      if event.count > 1
+        select_at(event.row, event.col, event.count) unless @help || list || !@frame.region(event.row, event.col).content?
+        return
+      end
       return @help = nil if @help
       region = @frame.region(event.row, event.col)
       return @running = false if region.close?

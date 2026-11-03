@@ -82,6 +82,21 @@ these requests are accepted and ignored.
 Manual pages are input from third parties: enable this only if you trust
 every page you open.
 .RE
+.SH "THE [viewer] SECTION"
+.TP
+.B start\-wrapped
+Start in the wrapped layout, paragraphs filled to the width of the
+terminal.
+With
+.BR false ,
+the viewer starts in the unwrapped layout: one line per paragraph, scrolled
+sideways.
+Default
+.BR true .
+.B w
+switches between the layouts, and
+.B \-u
+on the command line starts unwrapped either way.
 .SH "THE [colors] SECTION"
 Every element of the viewer is drawn in a role, and each key of this
 section restyles one role.
@@ -295,6 +310,9 @@ The help box.
 .EX
 [roff]
 unsafe = false
+
+[viewer]
+start\-wrapped = false
 
 [colors]
 heading1 = bold #ff8800

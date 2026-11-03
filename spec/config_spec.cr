@@ -37,6 +37,14 @@ describe Docv::Config do
     end
   end
 
+  it "reads where the viewer starts" do
+    Docv::Config.parse("").start_wrapped?.should be_true
+    Docv::Config.parse("[viewer]\nstart-wrapped = no\n").start_wrapped?.should be_false
+    Docv::Config::DEFAULT.should contain("[viewer]\n")
+    Docv::Config.parse(Docv::Config::DEFAULT).start_wrapped?.should be_true
+    expect_raises(Docv::Config::Error, /start-wrapped must be true or false/) { Docv::Config.parse("[viewer]\nstart-wrapped = maybe\n") }
+  end
+
   it "parses booleans" do
     Docv::Config.parse("[roff]\nunsafe = yes\n").unsafe?.should be_true
     Docv::Config.parse("[roff]\nunsafe = Off\n").unsafe?.should be_false

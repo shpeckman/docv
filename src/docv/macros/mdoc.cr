@@ -841,16 +841,19 @@ module Docv::Macros
       env.center = display.center
     end
 
+    # `.D1` and `.Dl`: one indented line; a literal one (`.Dl`) is never
+    # filled.
     private def one_line_display(tokens : Array(Token), literal : Bool) : Nil
       builder = @engine.builder
       env = @engine.env
       builder.break_line
-      saved = env.indent
+      saved, fill = env.indent, env.fill?
       env.indent += DISPLAY
+      env.fill = false if literal
       parse_range(tokens, 0, tokens.size)
       builder.break_line
       @no_space = false
-      env.indent = saved
+      env.indent, env.fill = saved, fill
     end
 
     private def end_reference : Nil

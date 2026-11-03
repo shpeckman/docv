@@ -22,6 +22,9 @@ module Docv
     # File name extensions of Markdown documents (also with `.gz`).
     EXTENSIONS = Set{".md", ".markdown", ".mdown", ".mkd", ".mkdn"}
 
+    # Code spans keep their spaces unbreakable, so they never wrap.
+    NO_BREAK = '\u00A0'
+
     # Columns a block quote and a code block move their text right.
     QUOTE_INDENT = 2
     CODE_INDENT  = 4
@@ -370,7 +373,7 @@ module Docv
           when .text?        then append(lines, child.text)
           when .soft_break?  then append(lines, " ")
           when .line_break?  then @single_line ? append(lines, " ") : (lines << [] of Span)
-          when .code?        then marked(Markup::Code) { append(lines, child.text) }
+          when .code?        then marked(Markup::Code) { append(lines, child.text.gsub(' ', NO_BREAK)) }
           when .html_inline? then nil
           when .link?        then link(child, lines)
           when .image?       then image(child, lines)

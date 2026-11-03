@@ -40,7 +40,7 @@ The manual pages are `man/man1/docv.1` (the command, its keys, mouse, search pat
     docv path-list
     docv gen-cr [-o dir] [shard]
 
-A `file` is a manual page, or a Markdown document when its name ends in `.md`, `.markdown`, `.mdown`, `.mkd` or `.mkdn` (optionally followed by `.gz`): `docv README.md`. Without a page, the viewer opens on an empty page with the page search focused (this needs a terminal). `-u` (`--unwrapped`) starts in the unwrapped layout. When standard output is not a terminal, the page is printed as plain text at `MANWIDTH` columns (default 80).
+A `file` is a manual page, or a Markdown document when its name ends in `.md`, `.markdown`, `.mdown`, `.mkd` or `.mkdn` (optionally followed by `.gz`): `docv README.md`. Without a page, the viewer opens on an empty page with the page search focused (this needs a terminal). The viewer starts in the wrapped layout unless `[viewer] start-wrapped = false` is set in `config.ini`; `-u` (`--unwrapped`) starts in the unwrapped layout either way. When standard output is not a terminal, the page is printed as plain text at `MANWIDTH` columns (default 80).
 
 ### Search path
 
@@ -85,11 +85,15 @@ The configuration file is `$XDG_CONFIG_HOME/docv/config.ini`. When `XDG_CONFIG_H
 [roff]
 ; run sy, pso, pi, open, opena, write, writec, writem, close, cf, trf, rd and \V
 unsafe = false
+
+[viewer]
+start-wrapped = true
 ```
 
-| Key            | Default | Meaning                                                                    |
-|----------------|---------|----------------------------------------------------------------------------|
-| `roff.unsafe`  | `false` | run the requests that execute commands or access files (see [roff coverage](#roff-coverage)); booleans accept `true`/`false`, `yes`/`no`, `on`/`off`, `1`/`0` |
+| Key                     | Default | Meaning                                                                    |
+|-------------------------|---------|----------------------------------------------------------------------------|
+| `roff.unsafe`           | `false` | run the requests that execute commands or access files (see [roff coverage](#roff-coverage)); booleans accept `true`/`false`, `yes`/`no`, `on`/`off`, `1`/`0` |
+| `viewer.start-wrapped`  | `true`  | start in the wrapped layout; `false` starts unwrapped (`w` switches, `-u` starts unwrapped either way) |
 
 ### Colors
 
@@ -164,8 +168,8 @@ On entering, the viewer asks the terminal for its theme with OSC 21 (kitty's col
 | `b` `Ctrl-b` `Shift-Space` `PgUp`      | page up                                  |
 | `d` `Ctrl-d` / `u` `Ctrl-u`            | half page down / up                      |
 | `g` `<` `Home` / `G` `>` `End`         | top / bottom                             |
-| `←` / `l` `→`                          | scroll left / right 8 columns            |
-| `H` `Shift-←` / `L` `Shift-→`          | scroll left / right half a screen        |
+| `l`                                    | scroll right 8 columns                   |
+| `H` / `L`                              | scroll left / right half a screen        |
 | `0` / `$`                              | line start / line end                    |
 | `w`                                    | toggle wrapped and unwrapped layout      |
 | `f` `t`                                | focus the search bar: find in the page   |
@@ -223,6 +227,8 @@ Anchors are GitHub's: the heading in lower case, punctuation dropped, spaces as 
 | wheel                                     | scroll 3 lines                          |
 | `Shift`-wheel, horizontal wheel           | scroll 8 columns                        |
 | drag in the text                          | select text; copied to the clipboard on release (OSC 52) |
+| double-click                              | select the word (letters, digits, `_` and `-`, so `--color` whole) or the run of punctuation, and copy it |
+| triple-click                              | select the paragraph (the lines with text around it in blocks of the same kind; a heading alone) and copy it |
 | drag a scrollbar thumb (right and bottom border) | scroll                           |
 | click a scrollbar track                   | page in that direction                  |
 | click a link                              | follow it                               |
@@ -232,7 +238,9 @@ Anchors are GitHub's: the heading in lower case, punctuation dropped, spaces as 
 | back button (Aux8)                        | back to the previous page               |
 | click 🞪 (end of the title row)            | quit                                    |
 
-While pages are listed, the wheel and the right border scroll the list. A selection stays highlighted until the next click or key. The clipboard write first sends an invalid payload, which clears the clipboard in terminals that append successive OSC 52 writes (kitty) and is ignored elsewhere.
+While pages are listed, the wheel and the right border scroll the list. A selection stays highlighted until the next click or key. Selections follow the indentation: a line's indentation and trailing blanks are never highlighted, and the copied lines lose the indentation they share, so a paragraph comes out flush left and code keeps its relative indentation.
+
+The arrow keys `←` and `→` do not scroll sideways; `l`, `H`, `L`, `0`, `$`, `Shift`-wheel and the horizontal scrollbar do. Code never wraps, also in the wrapped layout: code blocks (`.EX`, `.nf`, `.Bd -literal`, `.Dl`, fenced and indented Markdown code) keep their lines, and Markdown code spans are not broken across lines; the page scrolls sideways to show long ones. The clipboard write first sends an invalid payload, which clears the clipboard in terminals that append successive OSC 52 writes (kitty) and is ignored elsewhere.
 
 ## Markdown
 

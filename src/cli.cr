@@ -18,6 +18,7 @@ module Docv::CLI
            docv path-list
            docv gen-cr [-o dir] [shard]
       -u, --unwrapped   start with unwrapped (one line per paragraph) layout
+                        (also [viewer] start-wrapped = false in config.ini)
       -h, --help        show this help
 
     Without a page, the viewer opens on an empty page in the page search.
@@ -48,11 +49,11 @@ module Docv::CLI
     when "path-list" then return args.size == 1 ? path_list : usage_error
     when "gen-cr"    then return gen_cr(args[1..])
     end
-    wrap = true
+    unwrapped = false
     names = [] of String
     args.each do |arg|
       case arg
-      when "-u", "--unwrapped" then wrap = false
+      when "-u", "--unwrapped" then unwrapped = true
       when "-h", "--help"
         puts USAGE
         return 0
@@ -67,6 +68,7 @@ module Docv::CLI
     tty = Term::Tty.new
     return usage_error if names.size > 2 || (names.empty? && !tty.tty?)
     config = configuration || return 1
+    wrap = config.start_wrapped? && !unwrapped
     manpath = Manpath.default(Dir.current)
     if names.empty?
       viewer = Viewer.new(wrap: wrap, manpath: manpath, tty: tty, options: config.options, theme: config.theme)

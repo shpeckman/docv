@@ -100,7 +100,12 @@ columns wide (80 when unset).
 .SH OPTIONS
 .TP
 .BR \-u ", " \-\-unwrapped
-Start in the unwrapped layout: one line per paragraph, scrolled sideways.
+Start in the unwrapped layout: one line per paragraph, scrolled sideways,
+also when
+.B start\-wrapped
+in
+.MR docv\-config 5
+is true (the default).
 Unfilled text and tables never wrap in either layout.
 .TP
 .BR \-h ", " \-\-help
@@ -295,10 +300,15 @@ Half a page down / up.
 .BR g ", " < ", " Home " / " G ", " > ", " End
 Top / bottom.
 .TP
-.BR \(<- " / " l ", " \(->
-Scroll left / right by 8 columns.
+.B l
+Scroll right by 8 columns.
+The arrow keys
+.B \(<-
+and
+.B \(->
+do not scroll.
 .TP
-.BR H ", " Shift\-\(<- " / " L ", " Shift\-\(->
+.BR H " / " L
 Scroll left / right by half a screen.
 .TP
 .BR 0 " / " $
@@ -406,6 +416,20 @@ Scroll 8 columns.
 drag in the text
 Select text; on release it is copied to the clipboard with OSC 52.
 The selection stays highlighted until the next click or key.
+Indentation and trailing blanks of a line are not selected, and the copied
+lines lose the indentation they share: text comes out flush left, code keeps
+its relative indentation.
+.TP
+double-click
+Select the word under the pointer (letters, digits,
+.B _
+and
+.BR \- )
+or the run of punctuation, and copy it.
+.TP
+triple-click
+Select the paragraph: the lines with text around the pointer in blocks of
+the same kind (a heading alone), and copy it.
 .TP
 drag a thumb, click a track
 Scroll; a click on a track pages in its direction.
@@ -458,7 +482,8 @@ lists, strikethrough, bare URLs as links, and alerts
 Paragraphs fill to the width, list items hang on their bullet, number or
 check box, block quotes get a bar
 .RB ( \[u2502] )
-per level, code blocks keep their lines unwrapped and indented, tables are
+per level, code blocks keep their lines unwrapped and indented, code spans
+are never broken across lines, tables are
 boxed as wide as the terminal with the header row ruled off, and horizontal
 rules run across the width.
 Headings keep their level, 1 to 6, each in its own color.

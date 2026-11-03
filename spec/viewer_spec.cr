@@ -8,6 +8,12 @@ describe Docv::Viewer::Bindings do
     bindings.lookup(Docv::Term::KeyEvent.new('j'.ord)).should eq Docv::Viewer::Action::LineDown
   end
 
+  it "leaves the arrow keys sideways unbound" do
+    bindings.lookup(Docv::Term::KeyEvent.new(Docv::Term::Key::LEFT)).should be_nil
+    bindings.lookup(Docv::Term::KeyEvent.new(Docv::Term::Key::RIGHT, Docv::Term::Mods::Shift)).should be_nil
+    bindings.lookup(Docv::Term::KeyEvent.new('l'.ord)).should eq Docv::Viewer::Action::Right
+  end
+
   it "matches the physical key through the base layout" do
     event = Docv::Term::KeyEvent.new(0x43E, base: 'j'.ord)
     bindings.lookup(event).should eq Docv::Viewer::Action::LineDown

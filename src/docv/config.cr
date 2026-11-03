@@ -36,7 +36,7 @@ module Docv
     }
 
     # Known keys per section.
-    KEYS = {"roff" => Set{"unsafe"}, "colors" => Theme::KEYS.keys.to_set}
+    KEYS = {"roff" => Set{"unsafe"}, "viewer" => Set{"start-wrapped"}, "colors" => Theme::KEYS.keys.to_set}
 
     # The `[colors]` explanation in `DEFAULT`, followed there by every role
     # with its default, commented out.
@@ -56,7 +56,7 @@ module Docv
 
     # The file written when no configuration exists.
     DEFAULT = String.build do |io|
-      io << ROFF << '\n' << COLORS
+      io << ROFF << '\n' << VIEWER << '\n' << COLORS
       Theme::DEFAULT.each { |role, spec| io << "; " << Theme.key(role) << " = " << spec << '\n' }
     end
 
@@ -78,14 +78,27 @@ module Docv
 
       INI
 
+    private VIEWER = <<-INI
+      [viewer]
+      ; Start in the wrapped layout, paragraphs filled to the width (w
+      ; switches). When false, the viewer starts unwrapped: one line per
+      ; paragraph, scrolled sideways. -u on the command line starts unwrapped
+      ; either way.
+      start-wrapped = true
+
+      INI
+
     # The file this configuration was read from, if any.
     getter path : String?
     # Whether unsafe roff requests run.
     getter? unsafe : Bool
+    # Whether the viewer starts in the wrapped layout.
+    getter? start_wrapped : Bool
     # Role styles from `[colors]`.
     getter colors : Hash(Theme::Role, Theme::Spec)
 
-    def initialize(@path : String? = nil, @unsafe : Bool = false, @colors = {} of Theme::Role => Theme::Spec)
+    def initialize(@path : String? = nil, @unsafe : Bool = false, @colors = {} of Theme::Role => Theme::Spec,
+                   @start_wrapped : Bool = true)
     end
 
     # The configuration directory: `$XDG_CONFIG_HOME/docv`.
@@ -125,6 +138,7 @@ module Docv
         end
       end
       roff = data["roff"]? || {} of String => String
+      viewer = data["viewer"]? || {} of String => String
       colors = (data["colors"]? || {} of String => String).to_h do |key, text|
         spec = begin
           Theme.parse(text)
@@ -133,7 +147,7 @@ module Docv
         end
         {Theme::KEYS[key], spec}
       end
-      new(path, boolean(roff, "unsafe", false, path), colors)
+      new(path, boolean(roff, "unsafe", false, path), colors, boolean(viewer, "start-wrapped", true, path))
     end
 
     private def self.boolean(values : Hash(String, String), key : String, default : Bool, path : String?) : Bool

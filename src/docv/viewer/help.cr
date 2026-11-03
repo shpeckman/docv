@@ -18,6 +18,8 @@ module Docv
         {"wheel", "scroll"},
         {"Shift-wheel", "scroll sideways"},
         {"drag in the text", "select and copy"},
+        {"double-click a word", "select and copy it"},
+        {"triple-click", "select and copy the paragraph"},
         {"drag a thumb, click a track", "scroll"},
         {"click a link", "follow it"},
         {"click the search bar", "focus it"},
