@@ -1,0 +1,26 @@
+# shard.yml
+name: docv
+version: 0.1.0
+
+authors:
+  - shpeckman <geelenrobin@proton.me>
+
+description: |
+  Parses manual pages (roff with the man(7) and mdoc(7) macro packages and
+  tbl tables) and Markdown documents (CommonMark with GitHub extensions) into
+  one document model, lays them out wrapped or unwrapped, and shows them in a
+  terminal viewer with a row-diffing cell grid renderer, kitty keyboard
+  protocol, SGR-pixel mouse input and OSC 8 hyperlinks.
+
+crystal: ">= 1.21.0"
+
+license: MIT
+
+dependencies:
+  markd:
+    github: icyleaf/markd
+    version: ~> 0.6.0
+
+targets:
+  docv:
+    main: src/cli.cr

@@ -1,0 +1,306 @@
+.\" man/man5/docv-config.5
+.TH DOCV\-CONFIG 5 2026-11-03 "docv 0.1.0" "File Formats"
+.SH NAME
+docv\-config \- configuration file of docv
+.SH SYNOPSIS
+.I $XDG_CONFIG_HOME/docv/config.ini
+.SH DESCRIPTION
+The configuration of
+.MR docv 1
+is an INI file in
+.IR $XDG_CONFIG_HOME/docv/config.ini ,
+or
+.I ~/.config/docv/config.ini
+when
+.B XDG_CONFIG_HOME
+is unset or not an absolute path.
+The first run writes it with every setting at its default, most of them
+commented out.
+.PP
+A line
+.BI [ section ]
+starts a section; a line
+.IB key " = " value
+sets a key in it.
+Lines starting with
+.B ;
+or
+.B #
+are comments; a comment cannot follow a value on the same line.
+An unknown section or key, or an invalid value, is an error:
+.B docv
+reports it and exits with status 1.
+.SH "THE [roff] SECTION"
+.TP
+.B unsafe
+Run the roff requests that execute commands or access files, and the
+.B \eV
+escape (environment variables).
+Default
+.BR false .
+Booleans are
+.BR true / false ,
+.BR yes / no ,
+.BR on / off
+or
+.BR 1 / 0 ,
+in any case.
+.RS
+.PP
+With
+.BR true :
+.B sy
+and
+.B pso
+run commands with
+.IR /bin/sh ,
+.B pso
+reading the output as input;
+.B pi
+pipes the page, formatted as text at 78 columns, into a command after
+parsing;
+.BR open ,
+.BR opena ,
+.BR write ,
+.BR writec ,
+.B writem
+and
+.B close
+write files;
+.B cf
+and
+.B trf
+copy files into the page;
+.B rd
+reads input lines from the terminal, for the page named on the command line
+only.
+Commands run with standard input and output on the null device.
+.PP
+With
+.B false
+these requests are accepted and ignored.
+Manual pages are input from third parties: enable this only if you trust
+every page you open.
+.RE
+.SH "THE [colors] SECTION"
+Every element of the viewer is drawn in a role, and each key of this
+section restyles one role.
+A style is a list of words: attributes
+.RB ( bold ,
+.BR italic ,
+.BR underline ,
+.BR reverse ,
+.BR dim ),
+a foreground color, and
+.B on
+followed by a background color.
+.PP
+A color is
+.BR default ,
+.BR foreground ,
+.BR background ,
+one of the ANSI colors
+.BR black ,
+.BR red ,
+.BR green ,
+.BR yellow ,
+.BR blue ,
+.BR magenta ,
+.BR cyan ,
+.BR white ,
+each also with a
+.B bright\-
+prefix, a palette number
+.B 0
+to
+.BR 255 ,
+or
+.BI # rrggbb\c
+\&.
+Named and numbered colors are those of the terminal's theme.
+A suffix
+.BI + n
+or
+.BI \- n
+ramps a color
+.I n
+percent toward the theme's foreground or background:
+.B on background+12
+is a background a shade off the terminal's in a dark and a light theme
+alike, and
+.B foreground\-40
+is text dimmed toward the background.
+.PP
+With
+.B NO_COLOR
+set, colors are off and this section is ignored; the roles use attributes
+only.
+.PP
+The roles and their defaults:
+.TP
+.B text
+(plain) Plain page text.
+.TP
+.B heading1
+.RB ( "bold bright\-blue" )
+Section headings of manual pages, level 1 headings of documents.
+.TP
+.B heading2
+.RB ( "bold blue" )
+Subsection headings of manual pages, level 2 headings of documents.
+.TP
+.B heading3
+.RB ( "bold bright\-magenta" )
+Level 3 headings.
+.TP
+.B heading4
+.RB ( "bold magenta" )
+Level 4 headings.
+.TP
+.B heading5
+.RB ( bold )
+Level 5 headings.
+.TP
+.B heading6
+.RB ( "bold foreground\-40" )
+Level 6 headings.
+.TP
+.B bold
+.RB ( "bold cyan" )
+Bold page text: commands, options.
+.TP
+.B italic
+.RB ( "underline green" )
+Italic page text: arguments.
+.TP
+.B bold\-italic
+.RB ( "bold underline green" )
+Bold italic page text.
+.TP
+.B underline
+.RB ( underline )
+Underlined page text.
+.TP
+.B code
+.RB ( "yellow on background+8" )
+Inline code in documents.
+.TP
+.B code\-block
+.RB ( yellow )
+Code blocks in documents.
+.TP
+.B quote
+.RB ( foreground\-60 )
+The bars of block quotes.
+.TP
+.B image
+.RB ( "italic foreground\-40" )
+The description standing for an image.
+.TP
+.B link
+.RB ( "underline magenta" )
+Links: cross-references, files, headings, URLs.
+.TP
+.B link\-focus
+.RB ( "reverse magenta" )
+The focused link.
+.TP
+.B text\-selection
+.RB ( "on blue\-50" )
+Text selected with the mouse.
+.TP
+.B page\-header
+.RB ( foreground\-40 )
+The pinned page header and footer.
+.TP
+.B title
+.RB ( bold )
+The title.
+.TP
+.B version
+.RB ( foreground\-50 )
+The version after the title.
+.TP
+.B close
+.RB ( red )
+The close mark.
+.TP
+.B border
+.RB ( foreground\-60 )
+The line under the title row, the horizontal scrollbar track and box edges.
+.TP
+.B thumb
+.RB ( "bold blue" )
+Scrollbar thumbs.
+.TP
+.B rule
+.RB ( foreground\-70 )
+The rules under the page header and above the page footer, and horizontal
+rules in documents.
+.TP
+.B field
+.RB ( "on background+12" )
+The search bar; its ends take its background as their color.
+.TP
+.B prompt
+.RB ( "bold blue" )
+The leading
+.B /
+of a page search.
+.TP
+.B placeholder
+.RB ( foreground\-50 )
+The hint in the empty search bar.
+.TP
+.B cursor
+.RB ( reverse )
+The cursor of the search bar.
+.TP
+.B message
+.RB ( yellow )
+Messages in the status row.
+.TP
+.B status
+.RB ( foreground\-30 )
+The status row.
+.TP
+.B status\-separator
+.RB ( foreground\-60 )
+The separators between status parts.
+.TP
+.B name
+.RB ( "bold cyan" )
+Page and document names in the page list, and keys in the help.
+.TP
+.B detail
+.RB ( foreground\-35 )
+Page and document descriptions in the page list.
+.TP
+.B selection
+.RB ( "on background+22" )
+The selected page in the list; the line of the selected match in the page.
+.TP
+.B hover
+.RB ( "on background+10" )
+The listed page under the pointer.
+.TP
+.B mark
+.RB ( "bold underline yellow" )
+Characters matched by a search.
+.TP
+.B popup
+.RB ( "on background+6" )
+The help box.
+.SH EXAMPLES
+.EX
+[roff]
+unsafe = false
+
+[colors]
+heading1 = bold #ff8800
+field = on background+8
+selection = black on bright\-cyan
+link = underline 208
+.EE
+.SH SEE ALSO
+.MR docv 1

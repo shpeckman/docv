@@ -1,0 +1,13 @@
+# src/docv/viewer.cr
+require "../docv"
+require "./term/events"
+require "./term/decoder"
+require "./term/input"
+require "./term/tty"
+require "./screen"
+require "./viewer/bindings"
+require "./viewer/field"
+require "./viewer/frame"
+require "./viewer/picker"
+require "./viewer/help"
+require "./viewer/viewer"

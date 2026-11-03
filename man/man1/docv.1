@@ -1,0 +1,599 @@
+.\" man/man1/docv.1
+.TH DOCV 1 2026-11-03 "docv 0.1.0" "User Commands"
+.SH NAME
+docv \- view manual pages and Markdown documents in a terminal, with fuzzy search
+.SH SYNOPSIS
+.SY docv
+.OP \-u
+.YS
+.
+.SY docv
+.OP \-u
+.RI [ section ]
+.I name
+.YS
+.
+.SY docv
+.OP \-u
+.IB name ( section )
+.YS
+.
+.SY docv
+.OP \-u
+.I file
+.YS
+.
+.SY docv
+.B path\-add
+.IR dir \~...
+.YS
+.
+.SY docv
+.B path\-rm
+.IR dir \~...
+.YS
+.
+.SY docv
+.B path\-list
+.YS
+.
+.SY docv
+.B gen\-cr
+.OP \-o dir
+.RI [ shard ]
+.YS
+.SH DESCRIPTION
+.B docv
+shows manual pages and Markdown documents in a full-screen terminal viewer.
+It reads the roff source of a page itself, with the
+.MR man 7
+and
+.MR mdoc 7
+macro packages and
+.MR tbl 1
+tables built in, from plain or gzip-compressed files, and follows
+.B .so
+includes.
+Files named
+.IR *.md ,
+.IR *.markdown ,
+.IR *.mdown ,
+.I *.mkd
+or
+.I *.mkdn
+(optionally gzip-compressed) are read as Markdown instead (see
+.BR MARKDOWN ).
+.PP
+The page is laid out to the width of the terminal, either wrapped or with
+each paragraph on one line.
+The page header of a manual page stays at the top of the screen and the
+page footer at the bottom while the body scrolls between them.
+Links can be followed and gone back from: cross-references such as
+.MR ls 1 ,
+and the links of a Markdown document to other files and to its headings.
+Links to URLs are written as terminal hyperlinks (OSC 8).
+A search bar fuzzy-finds in the displayed page, or in all pages of the
+manual and the Markdown documents of the project.
+Colors follow the terminal's own color theme.
+.PP
+A
+.IR name ,
+with an optional
+.IR section ,
+is looked up along the search path (see
+.BR "SEARCH PATH" ).
+A section prefix such as
+.B 3
+also matches
+.B 3p
+and
+.BR 3type .
+An argument that contains a slash, or names an existing file and is not a
+section name, is read as a file: a page, or a Markdown document.
+Without a page,
+.B docv
+opens on an empty page in the page search.
+.PP
+When standard output is not a terminal, the page is printed as plain text,
+.B MANWIDTH
+columns wide (80 when unset).
+.SH OPTIONS
+.TP
+.BR \-u ", " \-\-unwrapped
+Start in the unwrapped layout: one line per paragraph, scrolled sideways.
+Unfilled text and tables never wrap in either layout.
+.TP
+.BR \-h ", " \-\-help
+Print a usage summary and exit.
+.SH COMMANDS
+.TP
+.BI "path\-add " dir\~...
+Add directories of man pages to the search path.
+A directory is a tree of section directories
+.RI ( man1/ ", " man3/ ", ...)"
+or a directory with pages in it.
+Each directory must exist; it is stored as an absolute path.
+A directory without man pages is added with a warning.
+.TP
+.BI "path\-rm " dir\~...
+Remove added directories.
+Fails for a directory that was not added.
+.TP
+.B path\-list
+Print the search path in order, each directory with where it comes from:
+.BR project ,
+.B added
+or
+.BR system .
+.B (pages)
+marks a directory with pages in it rather than a tree.
+.TP
+.BR "gen\-cr " [ \-o
+.IR dir ]
+.RI [ shard ]
+Generate the man pages of a Crystal shard: the nearest directory from
+.I shard
+(the current directory by default) upward that holds a
+.IR shard.yml .
+It runs
+.B crystal docs \-\-format json
+there and renders
+.I README.md
+as the overview page
+.IB name .7cr
+and the doc comments of every type as
+.IB Type .3cr
+pages (with a
+.IB name \-toplevel.3cr
+page when the top level declares methods, macros or constants), into
+.I dir
+(default
+.IR man ),
+relative to the shard root.
+The pages land in
+.I man7/
+and
+.IR man3/ ,
+so
+.B docv
+finds them as project pages.
+A page whose content is unchanged keeps its file and date; generated pages
+no longer produced are removed.
+A file in the way that was not generated from doc comments stops the run.
+.B SOURCE_DATE_EPOCH
+sets the date of the pages.
+.SH SEARCH PATH
+Pages are looked up, and listed by the page search, along this path,
+earlier directories first.
+Within each tree, its locale subdirectories (from
+.BR LC_ALL ,
+.B LC_MESSAGES
+or
+.BR LANG )
+come before it, and sections are searched in the order of
+.BR man\-db .
+.TP
+.B The project around the current directory
+The project root is the nearest directory upward that holds one of
+.BR .git ,
+.BR .hg ,
+.BR .svn ,
+.BR .jj ,
+.BR shard.yml ,
+.BR Cargo.toml ,
+.BR package.json ,
+.BR go.mod ,
+.BR pyproject.toml ,
+.BR setup.py ,
+.BR Gemfile ,
+.BR pom.xml ,
+.BR build.gradle ,
+.BR CMakeLists.txt ,
+.BR meson.build ,
+.B configure.ac
+or a
+.BR Makefile ,
+looking no higher than below the home directory.
+Without one, the current directory is the root, unless it is the home
+directory or
+.BR / .
+The root and its subdirectories are searched four levels deep, skipping
+hidden directories,
+.BR node_modules ,
+.BR vendor ,
+.BR lib ,
+.BR target ,
+.B __pycache__
+and symbolic links.
+Trees of section directories
+.RI ( man/man1/tool.1 )
+and directories with pages in them
+.RI ( doc/tool.1 ,
+or the root itself) are taken.
+A page there is a file named
+.IB name . section\c
+, optionally ending in
+.BR .gz ,
+whose text starts with a roff control character.
+The Markdown documents found along the way, except hidden ones, are listed
+by the page search too.
+.TP
+.B The added directories
+From
+.BR "docv path\-add" .
+.TP
+.B The system path
+Built as
+.MR man 1
+builds it (see
+.MR manpath 5 ):
+.B MANPATH
+when set, each empty component standing for the default path.
+The default path takes, for each directory in
+.BR PATH ,
+its
+.B MANPATH_MAP
+directories from
+.I /etc/man_db.conf
+(or
+.IR /etc/manpath.config ),
+or else whichever of
+.IR ../man ,
+.IR man ,
+.I ../share/man
+and
+.I share/man
+exist next to it, and then the
+.B MANDATORY_MANPATH
+directories.
+.SH SCREEN
+The top row holds the title, the search bar between
+.B \[u25D6]
+and
+.BR \[u25D7] ,
+and a close mark
+.RB ( \[u1F7AA] ).
+A line runs below it.
+Then comes the page, with the vertical scrollbar in the last column, of
+which only the thumb
+.RB ( \[u2503] )
+is drawn, and below the page the horizontal scrollbar as a line, thumb
+.B \[u2501]
+on track
+.BR \[u2500] .
+The bottom row holds messages on the left, and on the right the layout, the
+lines in view and the first column in view, for example
+.RB \(lq "[wrap] \[u2502] 1\-56/801 \[u2502] col 1" \(rq.
+While finding in the page it starts with the selected match and the number
+of matches; while pages are listed it shows their count and the indexing
+progress.
+.SH KEYS
+Keys are looked up by physical key first (the base layout key of the kitty
+keyboard protocol), then by the key reported, then by the shifted symbol
+without its shift, so
+.B G
+and
+.B $
+work on any keyboard layout.
+.SS The page
+.TP
+.BR j ", " \(da ", " Ctrl\-n ", " Ctrl\-e
+Line down.
+.TP
+.BR k ", " \(ua ", " Ctrl\-p ", " Ctrl\-y
+Line up.
+.TP
+.BR Space ", " Ctrl\-f ", " PgDn
+Page down.
+.TP
+.BR b ", " Ctrl\-b ", " Shift\-Space ", " PgUp
+Page up.
+.TP
+.BR d ", " Ctrl\-d " / " u ", " Ctrl\-u
+Half a page down / up.
+.TP
+.BR g ", " < ", " Home " / " G ", " > ", " End
+Top / bottom.
+.TP
+.BR \(<- " / " l ", " \(->
+Scroll left / right by 8 columns.
+.TP
+.BR H ", " Shift\-\(<- " / " L ", " Shift\-\(->
+Scroll left / right by half a screen.
+.TP
+.BR 0 " / " $
+Line start / line end.
+.TP
+.B w
+Switch between the wrapped and the unwrapped layout.
+.TP
+.BR Tab " / " Shift\-Tab
+Focus the next / previous link.
+.TP
+.B Enter
+Follow the focused link (see
+.BR LINKS ).
+.TP
+.BR Backspace ", " Alt\-\(<-
+Back to the previous page.
+.TP
+.BR f ", " t
+Focus the search bar to find in the page.
+.TP
+.BR / ", " o
+Focus the search bar with
+.B /
+typed, to search the pages of the manual and the documents of the project.
+.TP
+.B h
+Show the help: every key as it is bound, and the mouse gestures.
+The scrolling keys and the wheel scroll it; any other key or a click closes
+it.
+.TP
+.B Esc
+Clear the link focus, the text selection and the message.
+.TP
+.B Ctrl\-l
+Redraw the screen.
+.TP
+.BR q ", " Q ", " Ctrl\-c
+Quit.
+.SS The search bar
+.TP
+text
+Type into the bar.
+.TP
+.B Enter
+Stay at the selected match, or open the selected page.
+.TP
+.BR Esc ", " Ctrl\-c ", " Ctrl\-g
+Leave the bar and empty it; when finding in the page, go back to where the
+search started.
+.TP
+.B Backspace
+Delete the last character.
+.TP
+.B Ctrl\-u
+Clear the bar.
+.TP
+.BR \(da ", " Ctrl\-n ", " Tab " / " \(ua ", " Ctrl\-p ", " Shift\-Tab
+Next / previous match or page.
+.TP
+.BR PgDn " / " PgUp
+A screenful of matches or pages down / up.
+.SH SEARCH BAR
+Text without a leading
+.B /
+fuzzy-finds in the lines of the displayed page, in its current layout.
+The page stays on screen: matched characters are highlighted in place, the
+line of the selected match is shaded, and the page scrolls to the best match
+while typing.
+.PP
+Text after a leading
+.B /
+lists the pages of the search path as
+.IB name ( section )
+with the description from their NAME section, and the Markdown documents of
+the project by their path from the project root with their first heading
+and paragraph, matched against both.
+The project's pages and documents come first, also ahead of better matches
+elsewhere.
+A match in the name counts slightly more than an equal match in the
+description, so
+.B /list dir
+finds
+.MR ls 1
+by its description.
+The descriptions are read from the pages in the background while the list
+is in use, and cached.
+.PP
+Matching is fuzzy: the characters of each space-separated term must appear
+in order, and matches score higher at word starts, in runs of consecutive
+characters and with short gaps.
+Every term must match.
+A term in lower case ignores case; a term with an upper-case letter matches
+exactly.
+Results are ranked best first within the project's entries and within the
+others; ties go to the shorter name, then to section order.
+.SH MOUSE
+.TP
+wheel
+Scroll 3 lines.
+.TP
+.RB Shift\- "wheel, horizontal wheel"
+Scroll 8 columns.
+.TP
+drag in the text
+Select text; on release it is copied to the clipboard with OSC 52.
+The selection stays highlighted until the next click or key.
+.TP
+drag a thumb, click a track
+Scroll; a click on a track pages in its direction.
+.TP
+click a link
+Follow it.
+.TP
+click the search bar
+Focus it.
+.TP
+hover over a listed page, click it
+Highlight it, open it.
+.TP
+.RB "click " \[u1F7AA]
+Quit.
+.TP
+back button
+Back to the previous page.
+.SH LINKS
+A cross-reference
+.IB name ( section )
+in the text opens that page from the search path.
+A Markdown link to a file opens the file, relative to the current one, at
+the heading its
+.BI # anchor
+names; a link to
+.BI # anchor
+alone goes to that heading of the current document.
+Anchors are GitHub's: the heading in lower case, punctuation dropped, spaces
+as dashes, and
+.BR \-1 ,
+.BR \-2 ...
+appended to repeated headings.
+Following a link remembers the place, for
+.BR Backspace .
+.PP
+A link to a URL (one with a scheme, such as
+.B https:
+or
+.BR mailto: )
+is written as a terminal hyperlink (OSC 8), for the terminal to open: most
+terminals open it on a click with a modifier, such as
+.B Ctrl\-Shift
+in kitty, since the viewer itself takes plain clicks.
+Following it in the viewer shows the URL.
+.SH MARKDOWN
+Markdown is read as CommonMark with the GitHub extensions: tables, task
+lists, strikethrough, bare URLs as links, and alerts
+.RB ( "> [!NOTE]" ).
+Paragraphs fill to the width, list items hang on their bullet, number or
+check box, block quotes get a bar
+.RB ( \[u2502] )
+per level, code blocks keep their lines unwrapped and indented, tables are
+boxed as wide as the terminal with the header row ruled off, and horizontal
+rules run across the width.
+Headings keep their level, 1 to 6, each in its own color.
+Raw HTML is dropped, keeping the text between the tags; an image shows its
+description.
+Markdown documents have no page header and footer.
+.SH COLORS
+Every element is drawn in a role, styled from the terminal's color theme.
+On start, and again when the terminal reports a change of color scheme,
+.B docv
+asks the terminal for its colors with OSC 21 (the color control protocol of
+.BR kitty ).
+Once it answers, colors ramped toward its foreground or background, such as
+the background of the search bar, are exact and drawn in 24-bit color.
+Otherwise the standard xterm colors stand in, and the color depth comes from
+.B COLORTERM
+and
+.BR TERM .
+Colors a page sets itself are kept.
+Roles are restyled in
+.MR docv\-config 5 .
+.SH TERMINAL
+.B docv
+switches to the alternate screen and uses the kitty keyboard protocol, SGR
+mouse reports in pixels, in-band resize, focus, visibility and color scheme
+notifications, synchronized updates, OSC 21 for the color theme, OSC 52
+for the clipboard and OSC 8 for hyperlinks.
+Terminals without some of these get the legacy key encodings, cell mouse
+coordinates and default colors; the clipboard write first sends an invalid
+payload, which clears the clipboard in terminals that append writes and is
+ignored elsewhere.
+.SH ENVIRONMENT
+.TP
+.B MANPATH
+The system search path; see
+.BR "SEARCH PATH" .
+.TP
+.B PATH
+The directories next to which the default system path looks for pages.
+.TP
+.B MANWIDTH
+The width of plain text output.
+.TP
+.B SOURCE_DATE_EPOCH
+The date, in seconds since the epoch, written into the pages
+.B gen\-cr
+generates, for reproducible builds; today when unset.
+.TP
+.B NO_COLOR
+When set and not empty, no colors at all: headings bold, arguments and links
+underlined, selections in reverse video.
+.TP
+.B COLORTERM
+.B truecolor
+or
+.B 24bit
+selects 24-bit color.
+.TP
+.B TERM
+A name ending in
+.B \-direct
+selects 24-bit color, one with
+.B 256color
+256 colors; otherwise the 16 ANSI colors.
+.TP
+.B XDG_CONFIG_HOME
+The base of the configuration directory,
+.I ~/.config
+when unset or not absolute.
+.TP
+.B XDG_CACHE_HOME
+The base of the cache directory,
+.I ~/.cache
+when unset or not absolute.
+.TP
+.BR LC_ALL ", " LC_MESSAGES ", " LANG
+The locale whose page translations come first.
+.SH FILES
+.TP
+.I $XDG_CONFIG_HOME/docv/config.ini
+The configuration, written with commented defaults on the first run; see
+.MR docv\-config 5 .
+.TP
+.I $XDG_CONFIG_HOME/docv/paths
+The added directories, one per line; lines starting with
+.B #
+are comments.
+.B path\-add
+and
+.B path\-rm
+rewrite it.
+.TP
+.I $XDG_CACHE_HOME/docv/index.tsv
+The page descriptions of the page search.
+A directory whose modification time is unchanged is read from it; in a
+changed directory only files with a new modification time are read again.
+The descriptions of the project's documents are read on every start.
+.TP
+.IR /etc/man_db.conf ", " /etc/manpath.config
+The
+.B man\-db
+configuration read for the system path.
+.SH EXIT STATUS
+.TP
+.B 0
+Success.
+.TP
+.B 1
+No such page, an unreadable page or document, an invalid configuration, a
+failed
+.BR gen\-cr ,
+or a failed
+.BR path\-add ,
+.B path\-rm
+or file write.
+.TP
+.B 2
+Invalid arguments.
+.SH EXAMPLES
+.EX
+docv ls
+docv 3 printf
+docv \(aqprintf(3)\(aq
+docv ./doc/tool.1
+docv README.md
+docv \-u tar
+docv path\-add ~/src/tool/man
+docv gen\-cr && docv Foo::Bar
+MANWIDTH=100 docv ls | less
+.EE
+.SH SEE ALSO
+.MR docv\-config 5 ,
+.MR crystal 1 ,
+.MR man 1 ,
+.MR manpath 5 ,
+.MR man 7 ,
+.MR mdoc 7 ,
+.MR tbl 1
